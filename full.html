@@ -1,0 +1,100 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+		"http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+	<title></title>
+</head>
+<body>
+
+
+<div style="margin-left:500px;">
+    <h3>Interactive graph visualization tool</h3>
+    <canvas id="canvas" width="1200" height="1200" style='border:1px solid #CCC;clear:both;'></canvas>
+</div>
+
+
+<div id="control_panel" style='font-size:12px;position:absolute;top:0;left:0;width:450px'>
+    <fieldset style="display:block; border:1px solid #999;margin:5px;padding:5px;">
+        <legend style="padding:0px 10px;">Force processing</legend>
+
+        <div class="sub">
+            Algirithm:
+
+            <select name="processing_algorithm" onchange="graph.options.processing_algorithm=this.value;">
+                <option value="1">Fruchterman-Reingold / Hu / Kurapov</option>
+                <option value="2">Fruchterman-Reingold / Hu</option>
+            </select>
+        </div>
+        <div class="sub clear">
+            Traction: <span id='energy_damping'></span>%
+            <div id="energy_damping_control" style="height:15px;"></div>
+        </div>
+        <div class="sub">
+            Repulsion: <span id='repulsion_coeff'></span>
+            <div id="repulsion_coeff_control" style="height:15px;"></div>
+        </div>
+    </fieldset>
+
+    <fieldset style="display:block; border:1px solid #999;margin:5px;padding:5px;">
+        <legend style="padding:0px 10px;">Drawing properties</legend>
+
+        <label class="sub"><input type="checkbox" name="nodes" onclick="graph.options.nodes.visible=!graph.options.nodes.visible;"/> {t}Nodes{/t}</label>
+        <label class="sub"><input type="checkbox" name="labels" onclick="graph.options.labels.visible=!graph.options.labels.visible;"/> {t}Labels{/t}</label>
+        <label class="sub"><input type="checkbox" checked=checked name="draw_connections" onclick="graph.options.draw_connections=!graph.options.draw_connections;"/> {t}Connections{/t}</label>
+
+        <label class="sub" style="height:27px;">
+            Cycle time:<span id="cycle_time">0</span> ms
+        </label>
+
+        <div class="sub">
+            Node size:
+            <div id="node_radius_control" style="height:15px;"></div>
+        </div>
+        <div class="sub">
+            Rank filter:<span id="draw_with_min_mass_val">0</span>
+            <div id="draw_with_min_mass" style="height:15px;"></div>
+        </div>
+    </fieldset>
+
+	<fieldset style="display:block; border:1px solid #999;margin:5px;padding:5px;">
+		<legend style="padding:0px 10px;">Network properties</legend>
+
+		<label class="sub">
+			{t}Nodes{/t}: <span id="nodes"></span>
+		</label>
+
+		<label class="sub">
+			{t}Connections{/t}: <span id="connections"></span>
+		</label>
+
+		<label class="sub">
+			<abbr>Density</abbr>: <span id="density"></span>
+		</label>
+
+
+		<label class="sub">
+			&sum; {t}kinetic energy{/t}: <span id="kinetic_energy"></span>
+		</label>
+		<label class="sub">
+			{t}Step{/t}: <span id="step"></span>
+		</label>
+
+		<label class="sub">
+			<abbr title='Watts-Strogatz clustering coefficient'>Clustering</abbr>: <span id="clustering_level"></span>
+		</label>
+
+		<div class="clear"></div>
+        <div id='degree_canvas'></div>
+
+        Adjacency matrix:<br />
+        <canvas id='adjacency_matrix' width=425 height=425></canvas>
+
+	</fieldset>
+
+	<div style='clear:both;'></div>
+</div>
+
+
+
+</body>
+</html>

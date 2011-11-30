@@ -1,0 +1,5 @@
+Grapheon is a graph drawing and analysis library in pure javascript using HTML5 canvas (and hopefully in the future using web workers and webgl)
+
+Author - Artjom Kurapov <artkurapov@gmail.com>
+License - CC BY 3.0, see http://creativecommons.org/licenses/by/3.0/
+This file was modified by JetBrains PhpStorm (PhpStorm) PS-110.359 for binding GitHub repository
