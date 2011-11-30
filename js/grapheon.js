@@ -226,7 +226,7 @@ function Grapheon(id) {
             //options.universe.drag.start_position=options.universe.viewpoint;
         }).mousedown(
         function (e) {
-            if (options.universe.drag.enabled == false) {
+            if (me.options.universe.drag.enabled == false) {
                 me.options.universe.drag.enabled = true;
                 me.options.universe.drag.x = e.pageX;
                 me.options.universe.drag.y = e.pageY;
@@ -407,7 +407,7 @@ function Grapheon(id) {
 
 
         if (!me.options.use_webworkers) {
-            this.process();
+            me.process();
         }
         
         else if (typeof(this.force_worker) === "undefined") {
@@ -426,7 +426,7 @@ function Grapheon(id) {
         }
 
         for (var k in me.nodes) {
-            if (me.nodes[k].mass >= this.options.draw_with_min_mass)
+            if (me.nodes[k].mass >= me.options.draw_with_min_mass)
                 me.nodes[k].draw();
         }
 

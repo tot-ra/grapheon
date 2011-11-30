@@ -8,14 +8,14 @@ function Node(ID, x, y, r, name) {
     this.ID = ID;
 
     if (graph.options.universe.limited) {
-        if (x > window_width) {
-            x = window_width;
+        if (x > graph.window_width) {
+            x = graph.window_width;
         }
         if (x < 0) {
             x = 0
         }
-        if (y > window_height) {
-            y = window_height;
+        if (y > graph.window_height) {
+            y = graph.window_height;
         }
         if (y < 0) {
             y = 0;

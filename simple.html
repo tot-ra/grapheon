@@ -14,10 +14,12 @@
 	<script type="text/javascript" language="JavaScript" src="js/grapheon.vector.js"></script>
 
 	<script type="text/javascript" language="JavaScript">
+		var graph;
+
 		$(document).ready(function(){
-			var graph = new Grapheon('canvas');
+			graph = new Grapheon('canvas');
 		    graph.options.labels.visible=1;
-		    graph.options.nodes.visible=0;
+		    //graph.options.nodes.visible=1;
 		    graph.draw();
 		    graph.process();
 
