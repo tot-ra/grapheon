@@ -5,14 +5,18 @@
  * @license - CC BY 3.0, see http://creativecommons.org/licenses/by/3.0/
  *
  * @param id string - canvas DOM element id
+ *
+ *
+ * todo move mouse controls to a separate independent part
  */
-function Grapheon(id) {
+
+function Grapheon(user_options) {
     var me = this;
+
+    var id = user_options.id;
     var canvas = document.getElementById(id);
     var queueNodes = new Array();
 
-    this.window_width = $("#" + id).width();
-    this.window_height = $("#" + id).height();
     this.ctx = canvas.getContext("2d");
 
     this.nodes = {};
@@ -20,64 +24,72 @@ function Grapheon(id) {
     this.connections_reverse = new Object();
     this.connection_count = 0;
     this.connections_index_prefferential = {};
-
     this.selected_nodes = 0;
-
     this.cycle_time = 0;
     this.step = 0;
 
-    this.options = {
-        onNodeSelect:function () {},
-
-        'canvas':{
-            'font':'11px Arial'
+    var default_options = {
+        'canvas': {
+            font: '11px Arial',
+            background: '#FFF',
+            width: 500,
+            height: 500
         },
 
-        'active':1, //set to 0 if you want to stop iterative calculation
-        'use_webworkers':0, //set to 1 if you want threaded calculation
-        'energy_damping_percent':0.95, //change to whatever value from 0 to 1 as a part of velocity that node will loose each step
-        'energy_damping_step':0,
-        'repulsion_coeff':1.5,
-        'use_prefferential_attachment_connection_index':0,
-        'atom_min_radius':3,
-
         //Drawing
-        'draw_connections':1,
-        'labels':{'visible':0},
-        'nodes':{'visible':1},
+        'draw_connections': 1,
+        'labels': {'visible': 1},
+        'nodes': {'visible': 1},
+        'draw_with_min_mass': 1,
+        'connection_min_width': 0.5,
+        'connection_max_width': 1,
+        'connection_color': '#000000',
+        'selected_node_color': '#00AA00',
+        'atom_min_radius': 3,
+        'interval_redraw': 42, //the answer
 
-        'draw_with_min_mass':1,
-        'connection_min_width':0.1,
-        'connection_max_width':1,
-        'connection_min_weight':0.01,
-        'connection_color':'#000000',
-        'selected_node_color':'#AA0000',
-        'radius_ratio':15,
-        'max_movement_speed':3,
-        'interval_redraw':41, //ms
-        "explosion_radius":100, //px
 
-        'universe':{
-            'limited':1,
-            'drag':{
-                'x':0,
-                'y':0,
-                'enabled':false,
+        //Processing
+        'active': true, //set to false if you want to stop iterative calculation
 
-                'moved':false,
-                'start_position':{
-                    'x':0,
-                    'y':0,
-                    'zoom':1
+        'energy_damping_percent': 0.95, //change to whatever value from 0 to 1 as a part of velocity that node will loose each step
+        'energy_damping_step': 0,
+        'repulsion_coeff': 1.5,
+        'use_prefferential_attachment_connection_index': 0,
+
+
+        'connection_min_weight': 0.01,
+        'radius_ratio': 5,
+        'max_movement_speed': 3,
+
+        "explosion_radius": 100, //px
+
+        'universe': {
+            'limited': 1,
+            'drag': {
+                'x': 0,
+                'y': 0,
+                'enabled': false,
+
+                'moved': false,
+                'start_position': {
+                    'x': 0,
+                    'y': 0,
+                    'zoom': 1
                 }
             },
-            'viewpoint':{
-                'zoom':1,
-                'x':0,
-                'y':0
+            'viewpoint': {
+                'zoom': 1,
+                'x': 0,
+                'y': 0
             }
+        },
+        onNodeSelect: function () {
         }
+
     };
+
+    this.options = array_merge(default_options, user_options);
 
     //set default processing algorithm
     this.options.processing_algorithm = function (node, connections, nodes, options) {
@@ -94,8 +106,9 @@ function Grapheon(id) {
                     dstNode = nodes[i];
                     if (dstNode != null && realNode.ID != dstNode.ID /*&& dstNode.mass > options.forces.min_weight_for_calculation*/) {
                         weight = connections[node.ID][i];
-                        if (!weight)
+                        if (!weight) {
                             weight = options.connection_min_weight;
+                        }
 
                         /**
                          Move nodes based on its connections
@@ -137,7 +150,9 @@ function Grapheon(id) {
                         );
 
                         AbsStep = fRepulsionCoefficient * iOptimalDistance * iOptimalDistance / RepulsionVector.length();
-                        if (AbsStep > options.max_movement_speed) AbsStep = options.max_movement_speed;
+                        if (AbsStep > options.max_movement_speed) {
+                            AbsStep = options.max_movement_speed;
+                        }
 
                         RepulsionVector.normalize();
                         RepulsionVector.multiply(level_multiplier);
@@ -171,7 +186,9 @@ function Grapheon(id) {
             node.energyGainStep++;
             if (node.energyGainStep > 5) {
                 energyLoss = (1 / Math.log(me.step) - 0.1) / energyLoss;
-                if (energyLoss < 0) energyLoss = 0;
+                if (energyLoss < 0) {
+                    energyLoss = 0;
+                }
             }
         }
         else {
@@ -184,7 +201,7 @@ function Grapheon(id) {
 
 
         //if(node.velocity.length()<0.1) node.velocity.multiply(0);
-    //	node.velocity = SumAttractionVector;
+        //	node.velocity = SumAttractionVector;
 
         return node;
     };
@@ -196,8 +213,8 @@ function Grapheon(id) {
             if (!me.options.universe.drag.moved) {
                 //Node selection on mouseup
                 var virtualCursor = {
-                    x:-me.options.universe.viewpoint.x + (e.pageX - $('#' + id).position().left) * me.options.universe.viewpoint.zoom,
-                    y:-me.options.universe.viewpoint.y + (e.pageY - $('#' + id).position().top) * me.options.universe.viewpoint.zoom
+                    x: -me.options.universe.viewpoint.x + (e.pageX - $('#' + id).position().left) * me.options.universe.viewpoint.zoom,
+                    y: -me.options.universe.viewpoint.y + (e.pageY - $('#' + id).position().top) * me.options.universe.viewpoint.zoom
                 };
 
                 min_len = 10000;
@@ -251,7 +268,7 @@ function Grapheon(id) {
 
     $('#' + id).bind('mousewheel', function (event, delta) {
         var offset = $('#' + id).offset();
-        var cursor_relative_position = {x:event.pageX - offset.left, y:event.pageY - offset.top};
+        var cursor_relative_position = {x: event.pageX - offset.left, y: event.pageY - offset.top};
 
         var zoom_percent = 0.9;
 
@@ -291,7 +308,7 @@ function Grapheon(id) {
          */
 
 
-        if (me.options.universe.viewpoint.zoom < 0.1){
+        if (me.options.universe.viewpoint.zoom < 0.1) {
             me.options.universe.viewpoint.zoom = 0.1;
         }
 
@@ -302,8 +319,7 @@ function Grapheon(id) {
         return queueNodes.shift();
     };
 
-    this.addNode = function (key, parentID, domain_name) {
-
+    this.addNode = function (key, node_title, parentID) {
         //circular arrangement
         if (arguments[3] != null) {
             if (parentID) {
@@ -319,14 +335,17 @@ function Grapheon(id) {
             startingY = sy + me.options.explosion_radius * Math.sin(2 * Math.PI * arguments[3]);
         }
         //random on page
-        else if (parentID == 0) {
-            startingX = Math.random() * me.window_width;
-            startingY = Math.random() * me.window_height;
+        else if (parentID == null) {
+            startingX = Math.random() * me.options.canvas.width;
+            startingY = Math.random() * me.options.canvas.height;
         }
         //random rectangular arrangement
-        else {
+        else if (me.nodes[parentID] != null) {
             startingX = me.nodes[parentID].x + 2 * me.options.explosion_radius * (Math.random() - 0.5);
             startingY = me.nodes[parentID].y + 2 * me.options.explosion_radius * (Math.random() - 0.5);
+        }
+        else {
+            console.error('failed positioning node ' + key);
         }
 
 
@@ -336,18 +355,31 @@ function Grapheon(id) {
                 startingX,
                 startingY,
                 me.options.atom_min_radius,
-                domain_name);
+                node_title);
 
             queueNodes.push(key);
             //getConnections(potentialNode.domainID);
         }
+
+        return me;
     };
 
     this.addConnection = function (sourceNodeID, targetID, weight) {
-        if (typeof(me.connections[sourceNodeID]) == 'undefined') me.connections[sourceNodeID] = new Object();//new Array();
-        if (typeof(me.connections[targetID]) == 'undefined') me.connections[targetID] = new Object();//new Array();
-        if (typeof(me.connections_reverse[sourceNodeID]) == 'undefined') me.connections_reverse[sourceNodeID] = new Object();//new Array();
-        if (typeof(me.connections_reverse[targetID]) == 'undefined') me.connections_reverse[targetID] = new Object();//new Array();
+
+        if(weight==null) weight=1;
+
+        if (typeof(me.connections[sourceNodeID]) == 'undefined') {
+            me.connections[sourceNodeID] = new Object();
+        }//new Array();
+        if (typeof(me.connections[targetID]) == 'undefined') {
+            me.connections[targetID] = new Object();
+        }//new Array();
+        if (typeof(me.connections_reverse[sourceNodeID]) == 'undefined') {
+            me.connections_reverse[sourceNodeID] = new Object();
+        }//new Array();
+        if (typeof(me.connections_reverse[targetID]) == 'undefined') {
+            me.connections_reverse[targetID] = new Object();
+        }//new Array();
 
         //undirected graph adds both connections
         me.connections[sourceNodeID][targetID] = weight;
@@ -365,6 +397,8 @@ function Grapheon(id) {
         }
 
         this.connection_count++;
+
+        return me;
     };
 
     /* Analysis methods */
@@ -393,8 +427,12 @@ function Grapheon(id) {
     this.getDegreeArray = function () {
         var aDegrees = {};
         for (i in me.nodes) {
-            if (typeof(aDegrees[me.nodes[i].mass]) == 'undefined') aDegrees[me.nodes[i].mass] = 1;
-            else aDegrees[me.nodes[i].mass]++;
+            if (typeof(aDegrees[me.nodes[i].mass]) == 'undefined') {
+                aDegrees[me.nodes[i].mass] = 1;
+            }
+            else {
+                aDegrees[me.nodes[i].mass]++;
+            }
         }
         return aDegrees;
     };
@@ -402,41 +440,37 @@ function Grapheon(id) {
     this.draw = function () {
         var start_time = (new Date).getTime();
 
-        me.ctx.fillStyle = "#fff";
-        me.ctx.fillRect(0, 0, this.window_width, this.window_height);
+        me.ctx.fillStyle = me.options.canvas.background;
+        me.ctx.fillRect(0, 0, me.options.canvas.width, me.options.canvas.height);
 
 
-        if (!me.options.use_webworkers) {
-            me.process();
-        }
-        
-        else if (typeof(this.force_worker) === "undefined") {
-            this.startWorkers();
-        }
-
+        me.process();
 
         for (var i in me.nodes) {
-            me.nodes[i].move();
+            me.nodes[i].move(me.options.universe.limited);
         }
 
         if (me.options.draw_connections) {
-            for (var j in this.nodes) {
-                this.nodes[j].drawConnections();
+            for (var j in me.nodes) {
+                me.nodes[j].drawConnections(me);
             }
         }
 
         for (var k in me.nodes) {
-            if (me.nodes[k].mass >= me.options.draw_with_min_mass)
-                me.nodes[k].draw();
+            if (me.nodes[k].mass >= me.options.draw_with_min_mass) {
+                me.nodes[k].draw(me);
+            }
         }
 
         processing_time = (new Date).getTime() - start_time;
 
-        if (processing_time != 0)
+        if (processing_time != 0) {
             this.cycle_time = processing_time;
+        }
 
+        setTimeout(me.draw, me.options.interval_redraw);
 
-        setTimeout(this.draw, me.options.interval_redraw);
+        return me;
     };
 
     this.process = function () {
@@ -444,15 +478,16 @@ function Grapheon(id) {
         var processName = 'processLayout' + me.options.processing_algorithm;
 
         for (var i in me.nodes) {
-            me.nodes[i] = me.options.processing_algorithm(me.nodes[i],me.connections,me.nodes,me.options);
+            me.nodes[i] = me.options.processing_algorithm(me.nodes[i], me.connections, me.nodes, me.options);
         }
 
         for (var j in me.nodes) {
-            me.nodes[j].move();
+            me.nodes[j].move(me.options.universe.limited);
         }
 
+        return me;
     };
-
+/*
     this.startWorkers = function () {
         if (options.use_webworkers) {
 
@@ -474,39 +509,43 @@ function Grapheon(id) {
                     //console.log(me.nodes[k]);
                     me.nodes[k].velocity.x = msg.data.x;
                     me.nodes[k].velocity.y = msg.data.y;
-                    if (me.force_worker_step < count(me.nodes) - 1) me.force_worker_step = me.force_worker_step + 1;
-                    else me.force_worker_step = 0;
+                    if (me.force_worker_step < count(me.nodes) - 1) {
+                        me.force_worker_step = me.force_worker_step + 1;
+                    }
+                    else {
+                        me.force_worker_step = 0;
+                    }
 
                     //console.log(me.force_worker_step);
 
                     me.force_worker.postMessage({
-                        'connections':me.connections,
-                        'nodes':me.nodes,
-                        'i':me.force_worker_step,
-                        'options':me.options
+                        'connections': me.connections,
+                        'nodes': me.nodes,
+                        'i': me.force_worker_step,
+                        'options': me.options
                     });
                 };
 
                 this.force_worker.postMessage({
-                    'connections':me.connections,
-                    'nodes':me.nodes,
-                    'options':me.options,
-                    'i':me.force_worker_step
+                    'connections': me.connections,
+                    'nodes': me.nodes,
+                    'options': me.options,
+                    'i': me.force_worker_step
                 });
             }
         }
     };
-
+*/
     this.getNodeRank = function (nodeID) {
-        return count(connections[nodeID]);
+        return count(me.connections[nodeID]);
     };
 
     this.getNodeMutualFriendCount = function (nodeID) {
         sum = 0;
-        for (source in connections[nodeID]) {
-            for (target in connections[source]) {
+        for (source in me.connections[nodeID]) {
+            for (target in me.connections[source]) {
                 //console.log(nodeID+':'+source+'/'+target);
-                if (typeof(connections[nodeID][target]) != 'undefined') {
+                if (typeof(me.connections[nodeID][target]) != 'undefined') {
                     sum = sum + 1;
                 }
             }
@@ -530,8 +569,9 @@ function processLayout2(node, connections, nodes, options) {
             dstNode = nodes[i];
             if (dstNode != null /*&& dstNode.mass > options.forces.min_weight_for_calculation*/) {
                 weight = connections[node.ID][i];
-                if (!weight)
+                if (!weight) {
                     weight = options.connection_min_weight;
+                }
 
                 /**
                  Move nodes based on its connections
@@ -549,7 +589,9 @@ function processLayout2(node, connections, nodes, options) {
                     //me.options.atom_repulsion_distance / transitivity_rate
                     AttractionVector.normalize();
                     AbsStep = AttractionVector.square() / iOptimalDistance /* - iOptimalDistance*/;
-                    if (AbsStep > options.max_movement_speed) AbsStep = options.max_movement_speed;
+                    if (AbsStep > options.max_movement_speed) {
+                        AbsStep = options.max_movement_speed;
+                    }
                     AttractionVector.multiply(AbsStep);
 
                     ForceSum.add(AttractionVector);
@@ -623,7 +665,9 @@ function processLayout2(node, connections, nodes, options) {
             );
 
             AbsStep = fRepulsionCoefficient * iOptimalDistance * iOptimalDistance / RepulsionVector.length();
-            if (AbsStep > options.max_movement_speed) AbsStep = options.max_movement_speed;
+            if (AbsStep > options.max_movement_speed) {
+                AbsStep = options.max_movement_speed;
+            }
 
             RepulsionVector.normalize();
             //RepulsionVector.multiply( 3);
@@ -667,7 +711,9 @@ function processLayout2(node, connections, nodes, options) {
 function objKey(o, i) {
     k = 0;
     for (j in o) {
-        if (i == k) return j;
+        if (i == k) {
+            return j;
+        }
         k++;
     }
 }
@@ -675,7 +721,9 @@ function objKey(o, i) {
 function keyPos(o, i) {
     k = 0;
     for (j in o) {
-        if (i == j) return k;
+        if (i == j) {
+            return k;
+        }
         k++;
     }
 }
@@ -697,4 +745,26 @@ function count(a) {
         return a.__count__;
     }
     return Object.keys(a).length;
+}
+
+/**
+ * Overwrites obj1's values with obj2's and adds obj2's if non existent in obj1
+ * @param obj1
+ * @param obj2
+ * @returns obj3 a new object based on obj1 and obj2
+ */
+function array_merge(obj1, obj2) {
+    var obj3 = {};
+    for (var attrname in obj1) {
+        obj3[attrname] = obj1[attrname];
+    }
+    for (var attrname2 in obj2) {
+        if (typeof(obj3[attrname2]) == 'object') {
+            obj3[attrname2] = array_merge(obj3[attrname2], obj2[attrname2]);
+        }
+        else {
+            obj3[attrname2] = obj2[attrname2];
+        }
+    }
+    return obj3;
 }

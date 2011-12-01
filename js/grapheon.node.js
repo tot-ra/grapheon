@@ -8,14 +8,14 @@ function Node(ID, x, y, r, name) {
     this.ID = ID;
 
     if (graph.options.universe.limited) {
-        if (x > graph.window_width) {
-            x = graph.window_width;
+        if (x > graph.options.canvas.width) {
+            x = graph.options.canvas.width;
         }
         if (x < 0) {
             x = 0
         }
-        if (y > graph.window_height) {
-            y = graph.window_height;
+        if (y > graph.options.canvas.height) {
+            y = graph.options.canvas.height;
         }
         if (y < 0) {
             y = 0;
@@ -56,12 +56,12 @@ function Node(ID, x, y, r, name) {
         img.src = src;
     };
 
-    this.move = function () {
+    this.move = function (limited) {
 
         this.x = this.x + this.velocity.x;
         this.y = this.y + this.velocity.y;
 
-        if (graph.options.universe.limited) {
+        if (limited) {
             /*
              if(this.x > graph.window_width*graph.options.universe.viewpoint.zoom/2){
              this.x = graph.window_width*graph.options.universe.viewpoint.zoom/2;
@@ -105,7 +105,7 @@ function Node(ID, x, y, r, name) {
          }*/
     };
 
-    this.draw = function () {
+    this.draw = function (graph) {
         graph.ctx.font = Math.round(graph.options.radius_ratio / graph.options.universe.viewpoint.zoom) + "pt Calibri";
         graph.ctx.beginPath();
         graph.ctx.font = graph.options.canvas.font;
@@ -152,16 +152,16 @@ function Node(ID, x, y, r, name) {
 
     };
 
-    this.drawConnections = function () {
+    this.drawConnections = function (graph) {
 
         for (i in graph.connections[this.ID]) {
-            dstNode = graph.nodes[i];
+            var dstNode = graph.nodes[i];
             if (typeof dstNode == 'undefined') {
                 continue;
             }
 
             if (dstNode.mass >= graph.options.draw_with_min_mass && dstNode.mass <= this.mass) { //do not draw connections under certain mass
-                weight = graph.connections[this.ID][i];
+                var weight = graph.connections[this.ID][i];
                 if (!weight) {
                     weight = graph.options.connection_max_width;
                 }
@@ -180,8 +180,6 @@ function Node(ID, x, y, r, name) {
 
 
                 graph.ctx.beginPath();
-
-                //ctx.strokeStyle = "#000";
 
                 graph.ctx.moveTo(
                     (graph.options.universe.viewpoint.x + Math.round(this.x)) / graph.options.universe.viewpoint.zoom,

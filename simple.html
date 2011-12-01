@@ -5,7 +5,7 @@
 	<title>Simple grapheon demo</title>
 </head>
 <body>
-	<canvas id="canvas" width="1200" height="1200" style='border:1px solid #CCC;clear:both;'></canvas>
+	<canvas id="canvas" width="500" height="500" style='border:1px solid #CCC;clear:both;'></canvas>
 
 	<script type="text/javascript" language="JavaScript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.0/jquery.min.js"></script>
 
@@ -17,15 +17,24 @@
 		var graph;
 
 		$(document).ready(function(){
-			graph = new Grapheon('canvas');
-		    graph.options.labels.visible=1;
-		    //graph.options.nodes.visible=1;
-		    graph.draw();
-		    graph.process();
+			graph = new Grapheon({
+				id:'canvas',
+				canvas:{
+					width:500,
+					height:500
+				}
+			});
 
-			graph.addNode("id1",0,"Moscow");
-			graph.addNode("id2",0,"Paris");
-			graph.addConnection("id1","id2",0);
+			graph.addNode("id1","Moscow")
+					.addNode("id2","Paris")
+					.addNode("id3","London");
+
+			graph.addConnection("id1","id2")
+					.addConnection("id1","id3")
+					.addConnection("id3","id2");
+
+		    graph.draw().process();
+
 		});
 	</script>
 
