@@ -1,8 +1,9 @@
 # Grapheon
 
-Scalable force-directed graph drawing and analysis library using TypeScript and HTML5 Canvas.
+Scalable force-directed graph drawing and analysis library using TypeScript and HTML5 Canvas, supporting 100k+ nodes and edges.
 
-<img width="1400" height="899" alt="Screenshot 2026-03-31 at 15 53 32" src="https://github.com/user-attachments/assets/2f4b5bc1-0da4-40e1-8a4f-0b32657ddbdb" />
+<img width="500" alt="Screenshot 2026-03-31 at 15 53 32" src="https://github.com/user-attachments/assets/2f4b5bc1-0da4-40e1-8a4f-0b32657ddbdb" />
+<img width="500" alt="Screenshot 2026-03-31 at 18 23 21" src="https://github.com/user-attachments/assets/de0e53aa-0729-4f3d-bfde-238469a4dee0" />
 
 
 ## What changed
