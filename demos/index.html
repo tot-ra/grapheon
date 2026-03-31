@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grapheon Demo Gallery</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #102a43;
+      --muted: #486581;
+      --accent: #0ea5e9;
+      --border: #d9e2ec;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 15% 10%, #d8f3ff 0%, var(--bg) 45%, #eef2ff 100%);
+      min-height: 100vh;
+      padding: 32px;
+    }
+
+    h1 { margin: 0 0 10px; font-size: 2rem; }
+    p { margin: 0 0 24px; color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      max-width: 1100px;
+    }
+
+    a.card {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 10px 30px rgba(16, 42, 67, 0.08);
+      transition: transform 140ms ease, box-shadow 140ms ease;
+    }
+
+    a.card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 32px rgba(16, 42, 67, 0.14);
+    }
+
+    .title { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+    .desc { font-size: 0.95rem; color: var(--muted); line-height: 1.35; }
+    .tag {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #bae6fd;
+      color: #0369a1;
+      background: #f0f9ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>Grapheon Demo Gallery</h1>
+  <p>Build first with <code>npm run build</code>, then open any demo file in this folder.</p>
+
+  <div class="grid">
+    <a class="card" href="./random-erdos-renyi.html">
+      <div class="title">Random Erdős-Rényi</div>
+      <div class="desc">Simple random network with sliders for density and simulation parameters.</div>
+      <div class="tag">General Usage</div>
+    </a>
+
+    <a class="card" href="./hub-spoke.html">
+      <div class="title">Hub-and-Spoke</div>
+      <div class="desc">Star topology with optional ring links and weighted hub edges.</div>
+      <div class="tag">Weighted Graph</div>
+    </a>
+
+    <a class="card" href="./community-clusters.html">
+      <div class="title">Community Clusters</div>
+      <div class="desc">Multiple dense communities with sparse bridges.</div>
+      <div class="tag">Modular Network</div>
+    </a>
+
+    <a class="card" href="./large-scale-100k.html">
+      <div class="title">Large Scale 100k+</div>
+      <div class="desc">Demonstrates practical settings for 100k+ nodes and edges with draw budgets.</div>
+      <div class="tag">High Scale</div>
+    </a>
+
+    <a class="card" href="./worker-webgl.html">
+      <div class="title">Worker + WebGL</div>
+      <div class="desc">Simulation in Web Worker and rendering in WebGL for highest interactive scale.</div>
+      <div class="tag">Max Throughput</div>
+    </a>
+
+    <a class="card" href="./benchmark.html">
+      <div class="title">Benchmark</div>
+      <div class="desc">Compare main-thread, single-worker, and worker-pool simulation throughput.</div>
+      <div class="tag">Performance</div>
+    </a>
+  </div>
+</body>
+</html>

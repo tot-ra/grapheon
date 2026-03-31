@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grapheon Benchmark</title>
+  <style>
+    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .controls { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; align-items: end; }
+    label { font-size: 0.82rem; color: #334155; }
+    input, button { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; margin-top: 4px; }
+    button { background: #0369a1; color: #fff; border: none; font-weight: 700; cursor: pointer; }
+    .note { margin-top: 10px; font-size: 0.82rem; color: #64748b; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; background: #fff; border: 1px solid #e2e8f0; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem; }
+    th { background: #f1f5f9; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .status { margin-top: 12px; font-size: 0.85rem; color: #475569; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Grapheon Benchmark</h1>
+    <div class="controls">
+      <label>Nodes <input id="nodes" type="number" value="30000" min="5000" max="200000" step="5000" /></label>
+      <label>Edges <input id="edges" type="number" value="40000" min="5000" max="300000" step="5000" /></label>
+      <label>Warmup Steps <input id="warmup" type="number" value="3" min="0" max="20" step="1" /></label>
+      <label>Measured Steps <input id="steps" type="number" value="20" min="1" max="200" step="1" /></label>
+      <label>Pool Workers <input id="workers" type="number" value="30" min="2" max="64" step="1" /></label>
+      <button id="run">Run Benchmark</button>
+    </div>
+
+    <div class="note">Runs simulation-only timings (no draw). Pool mode is approximate because cross-shard edges are not simulated.</div>
+    <div class="status" id="status">idle</div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Mode</th>
+          <th>Total Time (ms)</th>
+          <th>Step Time (ms)</th>
+          <th>Steps/sec</th>
+          <th>Avg Active Nodes</th>
+          <th>Avg Theta</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    (async () => {
+      const statusEl = document.getElementById("status");
+      const tbody = document.getElementById("tbody");
+
+      if (window.location.protocol === "file:") {
+        statusEl.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/benchmark.html";
+        return;
+      }
+
+      let ForceGraph;
+      let ForceGraphWorkerClient;
+      let ForceGraphWorkerPoolClient;
+
+      try {
+        ({ ForceGraph, ForceGraphWorkerClient, ForceGraphWorkerPoolClient } = await import("../dist/index.js"));
+      } catch {
+        statusEl.textContent = "dist/index.js not found. Run: npm run build (from repo root), then reload.";
+        return;
+      }
+
+      const ui = {
+        nodes: document.getElementById("nodes"),
+        edges: document.getElementById("edges"),
+        warmup: document.getElementById("warmup"),
+        steps: document.getElementById("steps"),
+        workers: document.getElementById("workers"),
+        run: document.getElementById("run"),
+      };
+
+      function lcg(seed) {
+        let state = seed >>> 0;
+        return () => {
+          state = (1664525 * state + 1013904223) >>> 0;
+          return state / 4294967296;
+        };
+      }
+
+      function buildInput(nodeCount, edgeCount) {
+        const rand = lcg(42);
+        const positions = new Float32Array(nodeCount * 2);
+        const row = Math.ceil(Math.sqrt(nodeCount));
+        for (let i = 0; i < nodeCount; i += 1) {
+          positions[i * 2] = (i % row) - row / 2 + (rand() - 0.5) * 0.05;
+          positions[i * 2 + 1] = Math.floor(i / row) - row / 2 + (rand() - 0.5) * 0.05;
+        }
+
+        const edges = new Uint32Array(edgeCount * 2);
+        for (let i = 0; i < edgeCount; i += 1) {
+          edges[i * 2] = i % nodeCount;
+          edges[i * 2 + 1] = Math.floor(rand() * nodeCount);
+        }
+
+        return { positions, edges };
+      }
+
+      function addRow(name, totalMs, steps, avgActive, avgTheta) {
+        const tr = document.createElement("tr");
+        const stepMs = totalMs / steps;
+        const sps = 1000 / stepMs;
+        tr.innerHTML = `
+          <td>${name}</td>
+          <td class="mono">${totalMs.toFixed(1)}</td>
+          <td class="mono">${stepMs.toFixed(2)}</td>
+          <td class="mono">${sps.toFixed(2)}</td>
+          <td class="mono">${Math.round(avgActive).toLocaleString()}</td>
+          <td class="mono">${avgTheta.toFixed(3)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      async function benchMainThread(nodeCount, edgeCount, warmup, steps, positions, edges) {
+        const graph = new ForceGraph({
+          repulsionStrength: 24,
+          springLength: 8,
+          springStrength: 0.03,
+          damping: 0.92,
+          theta: 1,
+          activeSetEnabled: true,
+        });
+
+        for (let i = 0; i < nodeCount; i += 1) {
+          graph.addNode(i, { x: positions[i * 2], y: positions[i * 2 + 1] });
+        }
+        for (let i = 0; i + 1 < edges.length; i += 2) {
+          graph.addEdge(edges[i], edges[i + 1], 1);
+        }
+
+        for (let i = 0; i < warmup; i += 1) graph.step(1);
+
+        let activeTotal = 0;
+        let thetaTotal = 0;
+        const t0 = performance.now();
+        for (let i = 0; i < steps; i += 1) {
+          const s = graph.step(1);
+          activeTotal += s.activeNodeCount;
+          thetaTotal += s.theta;
+        }
+        const t1 = performance.now();
+
+        return { totalMs: t1 - t0, avgActive: activeTotal / steps, avgTheta: thetaTotal / steps };
+      }
+
+      async function benchSingleWorker(nodeCount, warmup, steps, positions, edges) {
+        const worker = new ForceGraphWorkerClient();
+        await worker.init({
+          repulsionStrength: 24,
+          springLength: 8,
+          springStrength: 0.03,
+          damping: 0.92,
+          theta: 1,
+          activeSetEnabled: true,
+        });
+
+        await worker.loadGraph(nodeCount, edges.slice(), positions.slice());
+        for (let i = 0; i < warmup; i += 1) await worker.step(1);
+
+        let activeTotal = 0;
+        let thetaTotal = 0;
+        const t0 = performance.now();
+        for (let i = 0; i < steps; i += 1) {
+          const s = await worker.step(1);
+          activeTotal += s.activeNodeCount;
+          thetaTotal += s.theta;
+        }
+        const t1 = performance.now();
+        worker.terminate();
+
+        return { totalMs: t1 - t0, avgActive: activeTotal / steps, avgTheta: thetaTotal / steps };
+      }
+
+      async function benchWorkerPool(nodeCount, warmup, steps, workers, positions, edges) {
+        const pool = new ForceGraphWorkerPoolClient(workers);
+        await pool.init({
+          repulsionStrength: 24,
+          springLength: 8,
+          springStrength: 0.03,
+          damping: 0.92,
+          theta: 1,
+          activeSetEnabled: true,
+        });
+
+        await pool.loadGraph(nodeCount, edges.slice(), positions.slice());
+        for (let i = 0; i < warmup; i += 1) await pool.step(1);
+
+        let activeTotal = 0;
+        let thetaTotal = 0;
+        const t0 = performance.now();
+        for (let i = 0; i < steps; i += 1) {
+          const s = await pool.step(1);
+          activeTotal += s.activeNodeCount;
+          thetaTotal += s.theta;
+        }
+        const t1 = performance.now();
+        pool.terminate();
+
+        return { totalMs: t1 - t0, avgActive: activeTotal / steps, avgTheta: thetaTotal / steps };
+      }
+
+      ui.run.addEventListener("click", async () => {
+        const nodeCount = Number(ui.nodes.value);
+        const edgeCount = Number(ui.edges.value);
+        const warmup = Number(ui.warmup.value);
+        const steps = Number(ui.steps.value);
+        const workers = Number(ui.workers.value);
+
+        tbody.innerHTML = "";
+        statusEl.textContent = "generating graph input...";
+        const { positions, edges } = buildInput(nodeCount, edgeCount);
+
+        try {
+          statusEl.textContent = "benchmarking main-thread ForceGraph...";
+          const main = await benchMainThread(nodeCount, edgeCount, warmup, steps, positions, edges);
+          addRow("Main Thread", main.totalMs, steps, main.avgActive, main.avgTheta);
+
+          statusEl.textContent = "benchmarking single worker...";
+          const single = await benchSingleWorker(nodeCount, warmup, steps, positions, edges);
+          addRow("Single Worker", single.totalMs, steps, single.avgActive, single.avgTheta);
+
+          statusEl.textContent = `benchmarking worker pool (${workers})...`;
+          const pool = await benchWorkerPool(nodeCount, warmup, steps, workers, positions, edges);
+          addRow(`Worker Pool (${workers})`, pool.totalMs, steps, pool.avgActive, pool.avgTheta);
+
+          statusEl.textContent = "done";
+        } catch (error) {
+          statusEl.textContent = `benchmark failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

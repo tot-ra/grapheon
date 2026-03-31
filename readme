@@ -1,5 +1,122 @@
-Grapheon is a graph drawing and analysis library in pure javascript using HTML5 canvas (and hopefully in the future using web workers and webgl)
+# Grapheon
 
-Author - Artjom Kurapov <artkurapov@gmail.com>
-License - CC BY 3.0, see http://creativecommons.org/licenses/by/3.0/
-This file was modified by JetBrains PhpStorm (PhpStorm) PS-110.359 for binding GitHub repository
+Scalable force-directed graph drawing and analysis library using TypeScript and HTML5 Canvas.
+
+## What changed
+
+- Rewritten core in TypeScript (`src/`) with typed public API.
+- New force engine optimized for very large graphs:
+  - Barnes-Hut repulsion (`O(n log n)` instead of `O(n^2)`).
+  - Linear spring attraction over edges (`O(e)`).
+  - Typed-array storage for low memory overhead and cache-friendly updates.
+- Canvas renderer supports draw budgets and viewport culling to stay responsive with 100k+ nodes/edges.
+- Active-set scheduling updates hot nodes every tick and cold nodes periodically.
+- Adaptive Barnes-Hut theta tuning based on frame budget.
+- Optional worker runtime (`ForceGraphWorkerClient`) for off-main-thread simulation.
+- Optional worker pool runtime (`ForceGraphWorkerPoolClient`) for multi-worker shard-parallel simulation.
+- Optional WebGL renderer (`WebGLForceGraphRenderer`) for high-throughput drawing.
+- WASM kernel interface for pluggable edge-force acceleration.
+- Added tests, including a large-graph test with >100k nodes and >100k edges.
+
+Legacy JS files are still present under `js/` and untouched.
+
+## Install
+
+```bash
+npm install
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+## Test
+
+```bash
+npm test
+```
+
+## Usage
+
+```ts
+import { ForceGraph } from "./dist/index.js";
+
+const graph = new ForceGraph<string>({
+  springLength: 20,
+  springStrength: 0.08,
+  repulsionStrength: 180,
+  theta: 0.8,
+});
+
+graph.addNode("a", { x: -100, y: 0 });
+graph.addNode("b", { x: 100, y: 0 });
+graph.addEdge("a", "b", 1);
+
+graph.step(1);
+
+const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+const ctx = canvas.getContext("2d");
+if (ctx) {
+  graph.draw(ctx, {
+    width: canvas.width,
+    height: canvas.height,
+    maxDrawNodes: 150_000,
+    maxDrawEdges: 150_000,
+    drawEdges: true,
+  });
+}
+```
+
+## API
+
+- `new ForceGraph(options?)`
+- `addNode(id, { x?, y?, mass? })`
+- `addEdge(sourceId, targetId, weight?)`
+- `step(iterations?)`
+- `draw(ctx, drawOptions)`
+- `exportRenderSnapshot(maxNodes?, maxEdges?)`
+- `setWasmKernel(kernel|null)`
+- `getNodePosition(id)`
+- `nodeAt(index)`
+
+Worker/WebGL:
+
+- `new ForceGraphWorkerClient()`
+- `new ForceGraphWorkerPoolClient(workerCount?)`
+- `new WebGLForceGraphRenderer(canvas)`
+
+## Demos
+
+HTML demos are available in `/Users/artjom/git/grapheon/demos`:
+
+- `index.html` (gallery)
+- `random-erdos-renyi.html`
+- `hub-spoke.html`
+- `community-clusters.html`
+- `large-scale-100k.html`
+- `worker-webgl.html`
+- `benchmark.html`
+
+Worker pool note:
+
+- Pool mode shards one graph into per-worker partitions and merges render snapshots.
+- This increases throughput on large graphs but drops cross-shard edges in simulation (approximate physics).
+
+Benchmarking:
+
+- Open `/Users/artjom/git/grapheon/demos/benchmark.html` over HTTP.
+- It compares simulation step throughput for:
+  - Main-thread `ForceGraph`
+  - `ForceGraphWorkerClient` (single worker)
+  - `ForceGraphWorkerPoolClient` (N workers)
+
+All demos import `../dist/index.js`, so run `npm run build` first.
+Run demos over HTTP, for example:
+
+```bash
+python3 -m http.server 8080
+```
+
+Then open `http://localhost:8080/demos/`.

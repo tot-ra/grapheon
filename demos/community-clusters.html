@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grapheon - Community Clusters</title>
+  <style>
+    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
+    .layout { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+    .top { display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 10px; align-items: end; padding: 12px 16px; background: #fff; border-bottom: 1px solid #e2e8f0; }
+    .top label { font-size: 0.8rem; color: #334155; }
+    .top input, .top button { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 4px; }
+    .top button { background: #0891b2; color: #fff; border: none; font-weight: 600; cursor: pointer; }
+    .meta { font-size: 0.82rem; color: #64748b; padding: 0 16px 12px; background: #fff; }
+    canvas { width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <div>
+    <div class="top">
+      <label>Communities <input id="communities" type="number" value="5" min="2" max="12"></label>
+      <label>Nodes / Community <input id="nodesPerCommunity" type="number" value="400" min="50" max="4000" step="50"></label>
+      <label>Intra P <input id="intra" type="number" value="0.03" min="0.005" max="0.2" step="0.005"></label>
+      <label>Bridge P <input id="bridge" type="number" value="0.001" min="0.0001" max="0.02" step="0.0001"></label>
+      <button id="rebuild">Rebuild</button>
+      <button id="pause">Pause</button>
+    </div>
+    <div class="meta" id="meta">ready</div>
+  </div>
+  <canvas id="canvas" width="1400" height="860"></canvas>
+</div>
+
+<script>
+  (async () => {
+    if (window.location.protocol === "file:") {
+      const meta = document.getElementById("meta");
+      if (meta) {
+        meta.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/community-clusters.html";
+      }
+      return;
+    }
+
+    let ForceGraph;
+    try {
+      ({ ForceGraph } = await import("../dist/index.js"));
+    } catch {
+      const msg = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
+      const stats = document.getElementById("stats") ?? document.getElementById("status") ?? document.getElementById("meta");
+      if (stats) stats.textContent = msg;
+      return;
+    }
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const meta = document.getElementById("meta");
+
+    const communitiesEl = document.getElementById("communities");
+    const nodesPerCommunityEl = document.getElementById("nodesPerCommunity");
+    const intraEl = document.getElementById("intra");
+    const bridgeEl = document.getElementById("bridge");
+    const rebuildEl = document.getElementById("rebuild");
+    const pauseEl = document.getElementById("pause");
+
+  let running = true;
+  let graph;
+  const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.8 };
+  const pan = { active: false, lastX: 0, lastY: 0 };
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function eventToCanvas(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
+  function zoomAt(cx, cy, factor) {
+    const oldScale = view.scale;
+    const nextScale = clamp(oldScale * factor, 0.08, 8);
+    if (nextScale === oldScale) return;
+
+    const worldX = cx / oldScale - view.offsetX;
+    const worldY = cy / oldScale - view.offsetY;
+    view.scale = nextScale;
+    view.offsetX = cx / nextScale - worldX;
+    view.offsetY = cy / nextScale - worldY;
+  }
+
+  canvas.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    pan.active = true;
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+    canvas.style.cursor = "grabbing";
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!pan.active) return;
+    const dx = event.clientX - pan.lastX;
+    const dy = event.clientY - pan.lastY;
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+    view.offsetX += dx / view.scale;
+    view.offsetY += dy / view.scale;
+  });
+
+  window.addEventListener("mouseup", () => {
+    pan.active = false;
+    canvas.style.cursor = "grab";
+  });
+
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const { x, y } = eventToCanvas(event);
+    zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
+  }, { passive: false });
+
+  canvas.style.cursor = "grab";
+
+  function addCommunityEdges(nodes, probability, weight) {
+    const limit = Math.min(nodes.length, 120);
+    for (let i = 0; i < nodes.length; i += 1) {
+      for (let j = i + 1; j < Math.min(i + limit, nodes.length); j += 1) {
+        if (Math.random() < probability) graph.addEdge(nodes[i], nodes[j], weight);
+      }
+    }
+  }
+
+  function rebuild() {
+    const communities = Number(communitiesEl.value);
+    const nodesPerCommunity = Number(nodesPerCommunityEl.value);
+    const intra = Number(intraEl.value);
+    const bridge = Number(bridgeEl.value);
+
+    graph = new ForceGraph({
+      repulsionStrength: 140,
+      springLength: 17,
+      springStrength: 0.065,
+      theta: 0.9,
+      damping: 0.9,
+      maxSpeed: 5,
+      initialSpread: 900,
+    });
+
+    const all = [];
+
+    for (let c = 0; c < communities; c += 1) {
+      const nodes = [];
+      for (let i = 0; i < nodesPerCommunity; i += 1) {
+        const id = `c${c}-n${i}`;
+        graph.addNode(id, {
+          x: (c - communities / 2) * 240 + (Math.random() - 0.5) * 70,
+          y: (Math.random() - 0.5) * 250,
+        });
+        nodes.push(id);
+      }
+      addCommunityEdges(nodes, intra, 1);
+      all.push(nodes);
+    }
+
+    for (let c = 0; c < communities - 1; c += 1) {
+      const left = all[c];
+      const right = all[c + 1];
+      for (let i = 0; i < Math.min(left.length, right.length, 1000); i += 1) {
+        if (Math.random() < bridge) {
+          graph.addEdge(left[i], right[(i * 7) % right.length], 0.7);
+        }
+      }
+    }
+  }
+
+  function draw() {
+    if (running) {
+      const s = graph.step(1);
+      graph.draw(ctx, {
+        width: canvas.width,
+        height: canvas.height,
+        offsetX: view.offsetX,
+        offsetY: view.offsetY,
+        scale: view.scale,
+        nodeRadius: 1.3,
+        nodeColor: "#111827",
+        edgeColor: "rgba(30,64,175,0.18)",
+        backgroundColor: "#f8fafc",
+        maxDrawNodes: 70000,
+        maxDrawEdges: 70000,
+      });
+      meta.textContent = `${graph.nodeCount.toLocaleString()} nodes, ${graph.edgeCount.toLocaleString()} edges, avg speed ${s.averageSpeed.toFixed(3)}`;
+    }
+    requestAnimationFrame(draw);
+  }
+
+  rebuildEl.addEventListener("click", rebuild);
+  pauseEl.addEventListener("click", () => {
+    running = !running;
+    pauseEl.textContent = running ? "Pause" : "Resume";
+  });
+
+    rebuild();
+    draw();
+  })();
+</script>
+</body>
+</html>

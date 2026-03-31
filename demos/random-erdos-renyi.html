@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grapheon - Random Erdős-Rényi</title>
+  <style>
+    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
+    .layout { display: grid; grid-template-columns: 290px 1fr; height: 100vh; }
+    .panel { padding: 16px; border-right: 1px solid #e2e8f0; background: #ffffff; }
+    h1 { font-size: 1.1rem; margin: 0 0 10px; }
+    label { display: block; font-size: 0.84rem; margin-top: 12px; color: #334155; }
+    input, button { width: 100%; margin-top: 6px; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    button { cursor: pointer; background: #0ea5e9; color: #fff; border: none; font-weight: 600; }
+    canvas { width: 100%; height: 100%; display: block; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .meta { margin-top: 10px; font-size: 0.8rem; color: #64748b; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside class="panel">
+    <h1>Random Erdős-Rényi</h1>
+    <label>Nodes <input id="nodes" type="number" value="1500" min="100" max="15000" step="100"></label>
+    <label>Edge Probability (0..1) <input id="prob" type="number" value="0.002" min="0.0001" max="0.02" step="0.0005"></label>
+    <label>Repulsion <input id="repulsion" type="number" value="130" min="1" max="500"></label>
+    <label>Spring Length <input id="springLength" type="number" value="20" min="1" max="200"></label>
+    <label>Spring Strength <input id="springStrength" type="number" value="0.07" min="0.001" max="1" step="0.005"></label>
+    <div class="row">
+      <button id="regen">Regenerate</button>
+      <button id="toggle">Pause</button>
+    </div>
+    <div class="meta" id="stats">ready</div>
+  </aside>
+  <main><canvas id="canvas" width="1280" height="800"></canvas></main>
+</div>
+
+<script>
+  (async () => {
+    if (window.location.protocol === "file:") {
+      const stats = document.getElementById("stats");
+      if (stats) {
+        stats.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/random-erdos-renyi.html";
+      }
+      return;
+    }
+
+    let ForceGraph;
+    try {
+      ({ ForceGraph } = await import("../dist/index.js"));
+    } catch {
+      const msg = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
+      const stats = document.getElementById("stats") ?? document.getElementById("status") ?? document.getElementById("meta");
+      if (stats) stats.textContent = msg;
+      return;
+    }
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const stats = document.getElementById("stats");
+    const ui = {
+      nodes: document.getElementById("nodes"),
+      prob: document.getElementById("prob"),
+      repulsion: document.getElementById("repulsion"),
+      springLength: document.getElementById("springLength"),
+      springStrength: document.getElementById("springStrength"),
+      regen: document.getElementById("regen"),
+      toggle: document.getElementById("toggle"),
+    };
+
+  let running = true;
+  let graph;
+  const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.7 };
+  const pan = { active: false, lastX: 0, lastY: 0 };
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function eventToCanvas(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
+  function zoomAt(cx, cy, factor) {
+    const oldScale = view.scale;
+    const nextScale = clamp(oldScale * factor, 0.08, 8);
+    if (nextScale === oldScale) return;
+
+    const worldX = cx / oldScale - view.offsetX;
+    const worldY = cy / oldScale - view.offsetY;
+    view.scale = nextScale;
+    view.offsetX = cx / nextScale - worldX;
+    view.offsetY = cy / nextScale - worldY;
+  }
+
+  canvas.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    pan.active = true;
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+    canvas.style.cursor = "grabbing";
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!pan.active) return;
+    const dx = event.clientX - pan.lastX;
+    const dy = event.clientY - pan.lastY;
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+    view.offsetX += dx / view.scale;
+    view.offsetY += dy / view.scale;
+  });
+
+  window.addEventListener("mouseup", () => {
+    pan.active = false;
+    canvas.style.cursor = "grab";
+  });
+
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const { x, y } = eventToCanvas(event);
+    zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
+  }, { passive: false });
+
+  canvas.style.cursor = "grab";
+
+  function buildGraph() {
+    const n = Number(ui.nodes.value);
+    const p = Number(ui.prob.value);
+
+    graph = new ForceGraph({
+      repulsionStrength: Number(ui.repulsion.value),
+      springLength: Number(ui.springLength.value),
+      springStrength: Number(ui.springStrength.value),
+      damping: 0.91,
+      theta: 0.85,
+      maxSpeed: 5,
+      initialSpread: 500,
+    });
+
+    for (let i = 0; i < n; i += 1) graph.addNode(i);
+
+    const maxDistance = Math.ceil(1 / Math.max(p, 0.00001));
+    for (let i = 0; i < n; i += 1) {
+      for (let d = 1; d <= Math.min(maxDistance, 20); d += 1) {
+        if (Math.random() < p) {
+          graph.addEdge(i, (i + d) % n, 1);
+        }
+      }
+    }
+  }
+
+  function frame() {
+    if (running) {
+      const summary = graph.step(1);
+      graph.draw(ctx, {
+        width: canvas.width,
+        height: canvas.height,
+        offsetX: view.offsetX,
+        offsetY: view.offsetY,
+        scale: view.scale,
+        nodeRadius: 1.5,
+        nodeColor: "#0f172a",
+        edgeColor: "rgba(2,132,199,0.25)",
+        backgroundColor: "#f8fafc",
+        maxDrawNodes: 25000,
+        maxDrawEdges: 25000,
+      });
+
+      stats.textContent = `${graph.nodeCount.toLocaleString()} nodes, ${graph.edgeCount.toLocaleString()} edges, avg speed ${summary.averageSpeed.toFixed(3)}`;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  ui.regen.addEventListener("click", () => buildGraph());
+  ui.toggle.addEventListener("click", () => {
+    running = !running;
+    ui.toggle.textContent = running ? "Pause" : "Resume";
+  });
+
+    buildGraph();
+    frame();
+  })();
+</script>
+</body>
+</html>

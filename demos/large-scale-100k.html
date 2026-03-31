@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grapheon - 100k+ Scale Demo</title>
+  <style>
+    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
+    .bar { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #e2e8f0; background: #fff; flex-wrap: wrap; }
+    .bar label { font-size: 0.8rem; color: #334155; }
+    .bar input, .bar button { padding: 7px 9px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    .bar button { cursor: pointer; border: none; background: #0369a1; color: #fff; font-weight: 600; }
+    #status { font-size: 0.82rem; color: #64748b; }
+    canvas { width: 100vw; height: calc(100vh - 58px); display: block; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <label>Nodes <input id="nodes" type="number" value="120000" min="100000" max="300000" step="10000"></label>
+    <label>Edges <input id="edges" type="number" value="130000" min="100000" max="400000" step="10000"></label>
+    <label>Draw Nodes <input id="drawNodes" type="number" value="35000" min="1000" max="200000" step="1000"></label>
+    <label>Draw Edges <input id="drawEdges" type="number" value="30000" min="1000" max="250000" step="1000"></label>
+    <button id="build">Build Graph</button>
+    <button id="toggle">Pause</button>
+    <span id="status">ready</span>
+  </div>
+  <canvas id="canvas" width="1600" height="900"></canvas>
+
+<script>
+  (async () => {
+    if (window.location.protocol === "file:") {
+      const status = document.getElementById("status");
+      if (status) {
+        status.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/large-scale-100k.html";
+      }
+      return;
+    }
+
+    let ForceGraph;
+    try {
+      ({ ForceGraph } = await import("../dist/index.js"));
+    } catch {
+      const msg = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
+      const stats = document.getElementById("stats") ?? document.getElementById("status") ?? document.getElementById("meta");
+      if (stats) stats.textContent = msg;
+      return;
+    }
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+
+    const nodesEl = document.getElementById("nodes");
+    const edgesEl = document.getElementById("edges");
+    const drawNodesEl = document.getElementById("drawNodes");
+    const drawEdgesEl = document.getElementById("drawEdges");
+    const buildEl = document.getElementById("build");
+    const toggleEl = document.getElementById("toggle");
+
+  let graph = null;
+  let running = true;
+  const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.6 };
+  const pan = { active: false, lastX: 0, lastY: 0 };
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function eventToCanvas(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
+  function zoomAt(cx, cy, factor) {
+    const oldScale = view.scale;
+    const nextScale = clamp(oldScale * factor, 0.04, 8);
+    if (nextScale === oldScale) return;
+
+    const worldX = cx / oldScale - view.offsetX;
+    const worldY = cy / oldScale - view.offsetY;
+    view.scale = nextScale;
+    view.offsetX = cx / nextScale - worldX;
+    view.offsetY = cy / nextScale - worldY;
+  }
+
+  canvas.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    pan.active = true;
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+    canvas.style.cursor = "grabbing";
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!pan.active) return;
+    const dx = event.clientX - pan.lastX;
+    const dy = event.clientY - pan.lastY;
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+    view.offsetX += dx / view.scale;
+    view.offsetY += dy / view.scale;
+  });
+
+  window.addEventListener("mouseup", () => {
+    pan.active = false;
+    canvas.style.cursor = "grab";
+  });
+
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const { x, y } = eventToCanvas(event);
+    zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
+  }, { passive: false });
+
+  canvas.style.cursor = "grab";
+
+  function buildLargeGraph() {
+    const nodeCount = Number(nodesEl.value);
+    const edgeCount = Number(edgesEl.value);
+
+    graph = new ForceGraph({
+      repulsionStrength: 22,
+      springLength: 8,
+      springStrength: 0.03,
+      damping: 0.92,
+      timeStep: 0.22,
+      theta: 1,
+      gravity: 0.0012,
+      maxSpeed: 4,
+      initialSpread: 1400,
+    });
+
+    const row = Math.ceil(Math.sqrt(nodeCount));
+    for (let i = 0; i < nodeCount; i += 1) {
+      graph.addNode(i, {
+        x: (i % row) - row / 2,
+        y: Math.floor(i / row) - row / 2,
+      });
+    }
+
+    for (let i = 0; i < edgeCount; i += 1) {
+      const a = i % nodeCount;
+      const b = (i * 13 + 97) % nodeCount;
+      graph.addEdge(a, b, 1);
+    }
+  }
+
+  function animate() {
+    if (running && graph) {
+      const summary = graph.step(1);
+      graph.draw(ctx, {
+        width: canvas.width,
+        height: canvas.height,
+        offsetX: view.offsetX,
+        offsetY: view.offsetY,
+        scale: view.scale,
+        nodeRadius: 1,
+        nodeColor: "#0f172a",
+        edgeColor: "rgba(2,132,199,0.15)",
+        backgroundColor: "#f8fafc",
+        maxDrawNodes: Number(drawNodesEl.value),
+        maxDrawEdges: Number(drawEdgesEl.value),
+      });
+
+      status.textContent = `${graph.nodeCount.toLocaleString()} nodes | ${graph.edgeCount.toLocaleString()} edges | avg speed ${summary.averageSpeed.toFixed(3)}`;
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  buildEl.addEventListener("click", () => {
+    status.textContent = "building...";
+    setTimeout(() => {
+      buildLargeGraph();
+      status.textContent = "running";
+    }, 0);
+  });
+
+  toggleEl.addEventListener("click", () => {
+    running = !running;
+    toggleEl.textContent = running ? "Pause" : "Resume";
+  });
+
+    buildLargeGraph();
+    animate();
+  })();
+</script>
+</body>
+</html>

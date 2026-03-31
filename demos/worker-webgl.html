@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grapheon - Worker + WebGL</title>
+  <style>
+    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
+    .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 10px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; }
+    .bar label { font-size: 0.82rem; color: #334155; }
+    .bar input, .bar button { padding: 7px 8px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    .bar button { border: none; background: #0284c7; color: #fff; font-weight: 600; cursor: pointer; }
+    #status { font-size: 0.8rem; color: #64748b; }
+    canvas { width: 100vw; height: calc(100vh - 58px); display: block; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <label>Nodes <input id="nodes" type="number" value="90000" min="10000" max="250000" step="10000" /></label>
+    <label>Edges <input id="edges" type="number" value="110000" min="10000" max="350000" step="10000" /></label>
+    <label>Workers <input id="workers" type="number" value="30" min="1" max="64" step="1" /></label>
+    <button id="rebuild">Rebuild</button>
+    <button id="pause">Pause</button>
+    <span id="status">ready</span>
+  </div>
+  <canvas id="canvas" width="1600" height="900"></canvas>
+
+  <script>
+    (async () => {
+      if (window.location.protocol === "file:") {
+        document.getElementById("status").textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/worker-webgl.html";
+        return;
+      }
+
+      const status = document.getElementById("status");
+      let ForceGraphWorkerClient;
+      let ForceGraphWorkerPoolClient;
+      let WebGLForceGraphRenderer;
+      try {
+        const mod = await import("../dist/index.js");
+        ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer } = mod);
+      } catch {
+        status.textContent = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
+        return;
+      }
+
+      const canvas = document.getElementById("canvas");
+      const nodesEl = document.getElementById("nodes");
+      const edgesEl = document.getElementById("edges");
+      const workersEl = document.getElementById("workers");
+      const rebuildEl = document.getElementById("rebuild");
+      const pauseEl = document.getElementById("pause");
+
+      let engine = null;
+
+      let webgl = null;
+      try {
+        webgl = new WebGLForceGraphRenderer(canvas);
+      } catch {
+        status.textContent = "WebGL unavailable";
+        return;
+      }
+
+      let running = true;
+      let lastFrame = performance.now();
+      const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.58 };
+      const pan = { active: false, lastX: 0, lastY: 0 };
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+
+      function eventToCanvas(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: (event.clientX - rect.left) * (canvas.width / rect.width),
+          y: (event.clientY - rect.top) * (canvas.height / rect.height),
+        };
+      }
+
+      function zoomAt(cx, cy, factor) {
+        const oldScale = view.scale;
+        const nextScale = clamp(oldScale * factor, 0.04, 8);
+        if (nextScale === oldScale) return;
+
+        const worldX = cx / oldScale - view.offsetX;
+        const worldY = cy / oldScale - view.offsetY;
+        view.scale = nextScale;
+        view.offsetX = cx / nextScale - worldX;
+        view.offsetY = cy / nextScale - worldY;
+      }
+
+      canvas.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        pan.active = true;
+        pan.lastX = event.clientX;
+        pan.lastY = event.clientY;
+        canvas.style.cursor = "grabbing";
+      });
+
+      window.addEventListener("mousemove", (event) => {
+        if (!pan.active) return;
+        const dx = event.clientX - pan.lastX;
+        const dy = event.clientY - pan.lastY;
+        pan.lastX = event.clientX;
+        pan.lastY = event.clientY;
+        view.offsetX += dx / view.scale;
+        view.offsetY += dy / view.scale;
+      });
+
+      window.addEventListener("mouseup", () => {
+        pan.active = false;
+        canvas.style.cursor = "grab";
+      });
+
+      canvas.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        const { x, y } = eventToCanvas(event);
+        zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
+      }, { passive: false });
+
+      canvas.style.cursor = "grab";
+
+      async function createEngine() {
+        if (engine) {
+          engine.terminate();
+        }
+
+        const workerCount = Math.max(1, Number(workersEl.value) || 1);
+        if (workerCount === 1) {
+          engine = new ForceGraphWorkerClient();
+        } else {
+          engine = new ForceGraphWorkerPoolClient(workerCount);
+        }
+
+        await engine.init({
+          repulsionStrength: 24,
+          springLength: 8,
+          springStrength: 0.03,
+          damping: 0.92,
+          theta: 1,
+          activeSetEnabled: true,
+        });
+      }
+
+      async function build() {
+        status.textContent = "building graph in worker...";
+        await createEngine();
+        const nodeCount = Number(nodesEl.value);
+        const edgeCount = Number(edgesEl.value);
+
+        const positions = new Float32Array(nodeCount * 2);
+        const row = Math.ceil(Math.sqrt(nodeCount));
+        for (let i = 0; i < nodeCount; i += 1) {
+          positions[i * 2] = (i % row) - row / 2;
+          positions[i * 2 + 1] = Math.floor(i / row) - row / 2;
+        }
+
+        const edges = new Uint32Array(edgeCount * 2);
+        for (let i = 0; i < edgeCount; i += 1) {
+          edges[i * 2] = i % nodeCount;
+          edges[i * 2 + 1] = (i * 17 + 97) % nodeCount;
+        }
+
+        const loaded = await engine.loadGraph(nodeCount, edges, positions);
+        status.textContent = `${loaded.nodeCount.toLocaleString()} nodes loaded (${workersEl.value} worker${Number(workersEl.value) === 1 ? "" : "s"})`;
+      }
+
+      async function frame() {
+        if (running) {
+          const summary = await engine.step(1);
+          const snapshot = await engine.snapshot(45000, 40000);
+          webgl.drawSnapshot(snapshot, {
+            width: canvas.width,
+            height: canvas.height,
+            offsetX: view.offsetX,
+            offsetY: view.offsetY,
+            scale: view.scale,
+            nodeRadius: 2,
+            nodeColor: "#0b1220",
+            edgeColor: "#73879f66",
+            backgroundColor: "#f8fafc",
+            drawEdges: true,
+          });
+
+          const now = performance.now();
+          const frameMs = now - lastFrame;
+          lastFrame = now;
+          status.textContent = `workers ${workersEl.value} | active ${summary.activeNodeCount.toLocaleString()} | theta ${summary.theta.toFixed(2)} | frame ${frameMs.toFixed(1)}ms`;
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      rebuildEl.addEventListener("click", () => {
+        build().catch((err) => {
+          status.textContent = String(err);
+        });
+      });
+
+      pauseEl.addEventListener("click", () => {
+        running = !running;
+        pauseEl.textContent = running ? "Pause" : "Resume";
+      });
+
+      await build();
+      frame();
+    })();
+  </script>
+</body>
+</html>
