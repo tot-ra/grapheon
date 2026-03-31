@@ -2,6 +2,9 @@
 
 Scalable force-directed graph drawing and analysis library using TypeScript and HTML5 Canvas.
 
+<img width="1400" height="899" alt="Screenshot 2026-03-31 at 15 53 32" src="https://github.com/user-attachments/assets/2f4b5bc1-0da4-40e1-8a4f-0b32657ddbdb" />
+
+
 ## What changed
 
 - Rewritten core in TypeScript (`src/`) with typed public API.
