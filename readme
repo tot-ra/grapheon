@@ -108,7 +108,8 @@ Viewport controls:
 
 - Left-drag pans.
 - Mouse wheel zooms.
-- Right-drag rotates around the z-axis by updating `rotationZ`.
+- Right-drag orbits the 3D view by updating `rotationX` and `rotationY`.
+- Shift + right-drag rolls the current view by updating `rotationZ`.
 
 ## Demos
 

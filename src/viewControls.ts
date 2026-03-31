@@ -21,6 +21,7 @@ export interface ViewTransform {
 }
 
 export class CanvasPanZoomController {
+  private static readonly MAX_PITCH = Math.PI / 2 - 0.01;
   private offsetX: number;
   private offsetY: number;
   private scale: number;
@@ -33,7 +34,7 @@ export class CanvasPanZoomController {
   private readonly rotateFactor: number;
 
   private dragging = false;
-  private dragMode: "pan" | "rotateZ" = "pan";
+  private dragMode: "pan" | "orbit" | "roll" = "pan";
   private lastX = 0;
   private lastY = 0;
 
@@ -75,7 +76,7 @@ export class CanvasPanZoomController {
       this.offsetY = transform.offsetY;
     }
     if (transform.rotationX !== undefined) {
-      this.rotationX = transform.rotationX;
+      this.rotationX = CanvasPanZoomController.clampPitch(transform.rotationX);
     }
     if (transform.rotationY !== undefined) {
       this.rotationY = transform.rotationY;
@@ -92,7 +93,7 @@ export class CanvasPanZoomController {
 
     this.canvas.addEventListener("pointerdown", (event) => {
       this.dragging = true;
-      this.dragMode = event.button === 2 ? "rotateZ" : "pan";
+      this.dragMode = event.button === 2 ? (event.shiftKey ? "roll" : "orbit") : "pan";
       this.lastX = event.clientX;
       this.lastY = event.clientY;
       this.canvas.setPointerCapture(event.pointerId);
@@ -108,7 +109,13 @@ export class CanvasPanZoomController {
       this.lastX = event.clientX;
       this.lastY = event.clientY;
 
-      if (this.dragMode === "rotateZ") {
+      if (this.dragMode === "orbit") {
+        this.rotationY += dx * this.rotateFactor;
+        this.rotationX = CanvasPanZoomController.clampPitch(this.rotationX + dy * this.rotateFactor);
+        return;
+      }
+
+      if (this.dragMode === "roll") {
         this.rotationZ += dx * this.rotateFactor;
         return;
       }
@@ -151,5 +158,9 @@ export class CanvasPanZoomController {
       },
       { passive: false }
     );
+  }
+
+  private static clampPitch(value: number): number {
+    return Math.max(-CanvasPanZoomController.MAX_PITCH, Math.min(CanvasPanZoomController.MAX_PITCH, value));
   }
 }
