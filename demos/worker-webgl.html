@@ -36,9 +36,10 @@
       let ForceGraphWorkerClient;
       let ForceGraphWorkerPoolClient;
       let WebGLForceGraphRenderer;
+      let CanvasPanZoomController;
       try {
         const mod = await import("../dist/index.js");
-        ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer } = mod);
+        ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController } = mod);
       } catch {
         status.textContent = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
         return;
@@ -63,63 +64,17 @@
 
       let running = true;
       let lastFrame = performance.now();
-      const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.58 };
-      const pan = { active: false, lastX: 0, lastY: 0 };
-
-      function clamp(value, min, max) {
-        return Math.min(max, Math.max(min, value));
+      function isExpectedTermination(error) {
+        return String(error).includes("Worker terminated");
       }
-
-      function eventToCanvas(event) {
-        const rect = canvas.getBoundingClientRect();
-        return {
-          x: (event.clientX - rect.left) * (canvas.width / rect.width),
-          y: (event.clientY - rect.top) * (canvas.height / rect.height),
-        };
-      }
-
-      function zoomAt(cx, cy, factor) {
-        const oldScale = view.scale;
-        const nextScale = clamp(oldScale * factor, 0.04, 8);
-        if (nextScale === oldScale) return;
-
-        const worldX = cx / oldScale - view.offsetX;
-        const worldY = cy / oldScale - view.offsetY;
-        view.scale = nextScale;
-        view.offsetX = cx / nextScale - worldX;
-        view.offsetY = cy / nextScale - worldY;
-      }
-
-      canvas.addEventListener("mousedown", (event) => {
-        if (event.button !== 0) return;
-        pan.active = true;
-        pan.lastX = event.clientX;
-        pan.lastY = event.clientY;
-        canvas.style.cursor = "grabbing";
+      const initialScale = 0.58;
+      const camera = new CanvasPanZoomController(canvas, {
+        initialScale,
+        initialOffsetX: canvas.width / (2 * initialScale),
+        initialOffsetY: canvas.height / (2 * initialScale),
+        minScale: 0.04,
+        maxScale: 10,
       });
-
-      window.addEventListener("mousemove", (event) => {
-        if (!pan.active) return;
-        const dx = event.clientX - pan.lastX;
-        const dy = event.clientY - pan.lastY;
-        pan.lastX = event.clientX;
-        pan.lastY = event.clientY;
-        view.offsetX += dx / view.scale;
-        view.offsetY += dy / view.scale;
-      });
-
-      window.addEventListener("mouseup", () => {
-        pan.active = false;
-        canvas.style.cursor = "grab";
-      });
-
-      canvas.addEventListener("wheel", (event) => {
-        event.preventDefault();
-        const { x, y } = eventToCanvas(event);
-        zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
-      }, { passive: false });
-
-      canvas.style.cursor = "grab";
 
       async function createEngine() {
         if (engine) {
@@ -167,26 +122,33 @@
       }
 
       async function frame() {
-        if (running) {
-          const summary = await engine.step(1);
-          const snapshot = await engine.snapshot(45000, 40000);
-          webgl.drawSnapshot(snapshot, {
-            width: canvas.width,
-            height: canvas.height,
-            offsetX: view.offsetX,
-            offsetY: view.offsetY,
-            scale: view.scale,
-            nodeRadius: 2,
-            nodeColor: "#0b1220",
-            edgeColor: "#73879f66",
-            backgroundColor: "#f8fafc",
-            drawEdges: true,
-          });
+        if (running && engine) {
+          try {
+            const summary = await engine.step(1);
+            const snapshot = await engine.snapshot(45000, 40000);
+            const view = camera.getTransform();
+            webgl.drawSnapshot(snapshot, {
+              width: canvas.width,
+              height: canvas.height,
+              offsetX: view.offsetX,
+              offsetY: view.offsetY,
+              scale: view.scale,
+              nodeRadius: 2,
+              nodeColor: "#0b1220",
+              edgeColor: "#73879f66",
+              backgroundColor: "#f8fafc",
+              drawEdges: true,
+            });
 
-          const now = performance.now();
-          const frameMs = now - lastFrame;
-          lastFrame = now;
-          status.textContent = `workers ${workersEl.value} | active ${summary.activeNodeCount.toLocaleString()} | theta ${summary.theta.toFixed(2)} | frame ${frameMs.toFixed(1)}ms`;
+            const now = performance.now();
+            const frameMs = now - lastFrame;
+            lastFrame = now;
+            status.textContent = `workers ${workersEl.value} | active ${summary.activeNodeCount.toLocaleString()} | theta ${summary.theta.toFixed(2)} | frame ${frameMs.toFixed(1)}ms`;
+          } catch (error) {
+            if (!isExpectedTermination(error)) {
+              status.textContent = String(error);
+            }
+          }
         }
 
         requestAnimationFrame(frame);

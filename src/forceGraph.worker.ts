@@ -14,7 +14,8 @@ type ResponseMessage =
   | { type: "snapshot"; snapshot: RenderSnapshot }
   | { type: "error"; message: string };
 
-let graph = new ForceGraph<number>();
+let currentOptions: Partial<SimulationOptions> = {};
+let graph = new ForceGraph<number>(currentOptions);
 const workerScope = self as unknown as { postMessage: (message: unknown, transfer?: Transferable[]) => void };
 
 function toTransferables(snapshot: RenderSnapshot): Transferable[] {
@@ -30,12 +31,13 @@ self.onmessage = (event: MessageEvent<{ id: number; payload: RequestMessage }>) 
 
     switch (payload.type) {
       case "init": {
-        graph = new ForceGraph<number>(payload.options);
+        currentOptions = payload.options;
+        graph = new ForceGraph<number>(currentOptions);
         response = { type: "inited" };
         break;
       }
       case "load": {
-        graph = new ForceGraph<number>();
+        graph = new ForceGraph<number>(currentOptions);
         const { nodeCount, positions, edges } = payload;
 
         for (let i = 0; i < nodeCount; i += 1) {

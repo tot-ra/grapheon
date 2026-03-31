@@ -3,31 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Grapheon - Random Erdős-Rényi</title>
+  <title>Grapheon - Random Erdős-Rényi (Worker + WebGL)</title>
   <style>
     body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
-    .layout { display: grid; grid-template-columns: 290px 1fr; height: 100vh; }
-    .panel { padding: 16px; border-right: 1px solid #e2e8f0; background: #ffffff; }
-    h1 { font-size: 1.1rem; margin: 0 0 10px; }
-    label { display: block; font-size: 0.84rem; margin-top: 12px; color: #334155; }
-    input, button { width: 100%; margin-top: 6px; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; }
-    button { cursor: pointer; background: #0ea5e9; color: #fff; border: none; font-weight: 600; }
-    canvas { width: 100%; height: 100%; display: block; }
+    .layout { display: grid; grid-template-columns: 310px 1fr; height: 100vh; }
+    .panel { padding: 16px; border-right: 1px solid #e2e8f0; background: #fff; }
+    h1 { margin: 0 0 8px; font-size: 1.05rem; }
+    label { display: block; font-size: 0.82rem; color: #334155; margin-top: 10px; }
+    input, button { width: 100%; margin-top: 4px; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    button { border: none; background: #0284c7; color: #fff; font-weight: 700; cursor: pointer; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .meta { margin-top: 10px; font-size: 0.8rem; color: #64748b; }
+    canvas { width: 100%; height: 100%; display: block; }
   </style>
 </head>
 <body>
 <div class="layout">
   <aside class="panel">
     <h1>Random Erdős-Rényi</h1>
-    <label>Nodes <input id="nodes" type="number" value="1500" min="100" max="15000" step="100"></label>
-    <label>Edge Probability (0..1) <input id="prob" type="number" value="0.002" min="0.0001" max="0.02" step="0.0005"></label>
-    <label>Repulsion <input id="repulsion" type="number" value="130" min="1" max="500"></label>
-    <label>Spring Length <input id="springLength" type="number" value="20" min="1" max="200"></label>
-    <label>Spring Strength <input id="springStrength" type="number" value="0.07" min="0.001" max="1" step="0.005"></label>
+    <label>Nodes <input id="nodes" type="number" value="25000" min="1000" max="120000" step="1000"></label>
+    <label>Edges <input id="edges" type="number" value="40000" min="1000" max="240000" step="1000"></label>
+    <label>Workers <input id="workers" type="number" value="30" min="1" max="64" step="1"></label>
     <div class="row">
-      <button id="regen">Regenerate</button>
+      <button id="regen">Rebuild</button>
       <button id="toggle">Pause</button>
     </div>
     <div class="meta" id="stats">ready</div>
@@ -36,155 +34,143 @@
 </div>
 
 <script>
-  (async () => {
-    if (window.location.protocol === "file:") {
-      const stats = document.getElementById("stats");
-      if (stats) {
-        stats.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/random-erdos-renyi.html";
-      }
-      return;
-    }
+(async () => {
+  const stats = document.getElementById("stats");
+  if (window.location.protocol === "file:") {
+    stats.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/random-erdos-renyi.html";
+    return;
+  }
 
-    let ForceGraph;
-    try {
-      ({ ForceGraph } = await import("../dist/index.js"));
-    } catch {
-      const msg = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
-      const stats = document.getElementById("stats") ?? document.getElementById("status") ?? document.getElementById("meta");
-      if (stats) stats.textContent = msg;
-      return;
-    }
+  let ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController;
+  try {
+    ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController } = await import("../dist/index.js"));
+  } catch {
+    stats.textContent = "dist/index.js not found. Run: npm run build from repo root.";
+    return;
+  }
 
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    const stats = document.getElementById("stats");
-    const ui = {
-      nodes: document.getElementById("nodes"),
-      prob: document.getElementById("prob"),
-      repulsion: document.getElementById("repulsion"),
-      springLength: document.getElementById("springLength"),
-      springStrength: document.getElementById("springStrength"),
-      regen: document.getElementById("regen"),
-      toggle: document.getElementById("toggle"),
-    };
+  const canvas = document.getElementById("canvas");
+  const renderer = new WebGLForceGraphRenderer(canvas);
+  const nodesEl = document.getElementById("nodes");
+  const edgesEl = document.getElementById("edges");
+  const workersEl = document.getElementById("workers");
+  const regenEl = document.getElementById("regen");
+  const toggleEl = document.getElementById("toggle");
+  const initialScale = 0.62;
+  const camera = new CanvasPanZoomController(canvas, {
+    initialScale,
+    initialOffsetX: canvas.width / (2 * initialScale),
+    initialOffsetY: canvas.height / (2 * initialScale),
+    minScale: 0.04,
+    maxScale: 10,
+  });
 
   let running = true;
-  let graph;
-  const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.7 };
-  const pan = { active: false, lastX: 0, lastY: 0 };
-
-  function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
+  let engine = null;
+  let last = performance.now();
+  function isExpectedTermination(error) {
+    return String(error).includes("Worker terminated");
   }
 
-  function eventToCanvas(event) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - rect.left) * (canvas.width / rect.width),
-      y: (event.clientY - rect.top) * (canvas.height / rect.height),
-    };
+  async function createEngine() {
+    if (engine) engine.terminate();
+    const wc = Math.max(1, Number(workersEl.value) || 1);
+    engine = wc === 1 ? new ForceGraphWorkerClient() : new ForceGraphWorkerPoolClient(wc);
+    await engine.init({ repulsionStrength: 26, springLength: 8, springStrength: 0.03, damping: 0.92, theta: 1 });
   }
 
-  function zoomAt(cx, cy, factor) {
-    const oldScale = view.scale;
-    const nextScale = clamp(oldScale * factor, 0.08, 8);
-    if (nextScale === oldScale) return;
-
-    const worldX = cx / oldScale - view.offsetX;
-    const worldY = cy / oldScale - view.offsetY;
-    view.scale = nextScale;
-    view.offsetX = cx / nextScale - worldX;
-    view.offsetY = cy / nextScale - worldY;
-  }
-
-  canvas.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) return;
-    pan.active = true;
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
-    canvas.style.cursor = "grabbing";
-  });
-
-  window.addEventListener("mousemove", (event) => {
-    if (!pan.active) return;
-    const dx = event.clientX - pan.lastX;
-    const dy = event.clientY - pan.lastY;
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
-    view.offsetX += dx / view.scale;
-    view.offsetY += dy / view.scale;
-  });
-
-  window.addEventListener("mouseup", () => {
-    pan.active = false;
-    canvas.style.cursor = "grab";
-  });
-
-  canvas.addEventListener("wheel", (event) => {
-    event.preventDefault();
-    const { x, y } = eventToCanvas(event);
-    zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
-  }, { passive: false });
-
-  canvas.style.cursor = "grab";
-
-  function buildGraph() {
-    const n = Number(ui.nodes.value);
-    const p = Number(ui.prob.value);
-
-    graph = new ForceGraph({
-      repulsionStrength: Number(ui.repulsion.value),
-      springLength: Number(ui.springLength.value),
-      springStrength: Number(ui.springStrength.value),
-      damping: 0.91,
-      theta: 0.85,
-      maxSpeed: 5,
-      initialSpread: 500,
-    });
-
-    for (let i = 0; i < n; i += 1) graph.addNode(i);
-
-    const maxDistance = Math.ceil(1 / Math.max(p, 0.00001));
+  function makeGraphData(n, e) {
+    const positions = new Float32Array(n * 2);
+    const row = Math.ceil(Math.sqrt(n));
     for (let i = 0; i < n; i += 1) {
-      for (let d = 1; d <= Math.min(maxDistance, 20); d += 1) {
-        if (Math.random() < p) {
-          graph.addEdge(i, (i + d) % n, 1);
-        }
+      positions[i * 2] = (i % row) - row / 2;
+      positions[i * 2 + 1] = Math.floor(i / row) - row / 2;
+    }
+
+    const maxUndirectedEdges = Math.floor((n * (n - 1)) / 2);
+    const targetEdges = Math.max(0, Math.min(e, maxUndirectedEdges));
+    const edges = new Uint32Array(targetEdges * 2);
+    const used = new Set();
+
+    let i = 0;
+    while (i < targetEdges) {
+      const a = Math.floor(Math.random() * n);
+      let b = Math.floor(Math.random() * n);
+      if (a === b) {
+        continue;
       }
+
+      let low = a;
+      let high = b;
+      if (low > high) {
+        low = b;
+        high = a;
+      }
+
+      const key = low * n + high;
+      if (used.has(key)) {
+        continue;
+      }
+      used.add(key);
+
+      edges[i * 2] = low;
+      edges[i * 2 + 1] = high;
+      i += 1;
+    }
+
+    return { positions, edges, targetEdges, maxUndirectedEdges };
+  }
+
+  async function rebuild() {
+    stats.textContent = "building...";
+    await createEngine();
+    const n = Number(nodesEl.value);
+    const e = Number(edgesEl.value);
+    const data = makeGraphData(n, e);
+    const loaded = await engine.loadGraph(n, data.edges, data.positions);
+    stats.textContent = `${loaded.nodeCount.toLocaleString()} nodes, ${loaded.edgeCount.toLocaleString()} edges loaded`;
+    if (data.targetEdges < e) {
+      stats.textContent += ` (clamped to max ${data.maxUndirectedEdges.toLocaleString()})`;
     }
   }
 
-  function frame() {
-    if (running) {
-      const summary = graph.step(1);
-      graph.draw(ctx, {
-        width: canvas.width,
-        height: canvas.height,
-        offsetX: view.offsetX,
-        offsetY: view.offsetY,
-        scale: view.scale,
-        nodeRadius: 1.5,
-        nodeColor: "#0f172a",
-        edgeColor: "rgba(2,132,199,0.25)",
-        backgroundColor: "#f8fafc",
-        maxDrawNodes: 25000,
-        maxDrawEdges: 25000,
-      });
-
-      stats.textContent = `${graph.nodeCount.toLocaleString()} nodes, ${graph.edgeCount.toLocaleString()} edges, avg speed ${summary.averageSpeed.toFixed(3)}`;
+  async function frame() {
+    if (running && engine) {
+      try {
+        const summary = await engine.step(1);
+        const snapshot = await engine.snapshot(45000, 40000);
+        const view = camera.getTransform();
+        renderer.drawSnapshot(snapshot, {
+          width: canvas.width,
+          height: canvas.height,
+          offsetX: view.offsetX,
+          offsetY: view.offsetY,
+          scale: view.scale,
+          nodeRadius: 2,
+          nodeColor: "#0f172a",
+          edgeColor: "#64748b88",
+          backgroundColor: "#f8fafc",
+          drawEdges: true,
+        });
+        const now = performance.now();
+        const frameMs = now - last;
+        last = now;
+        stats.textContent = `workers ${workersEl.value} | active ${summary.activeNodeCount.toLocaleString()} | theta ${summary.theta.toFixed(2)} | frame ${frameMs.toFixed(1)}ms`;
+      } catch (error) {
+        if (!isExpectedTermination(error)) {
+          stats.textContent = String(error);
+        }
+      }
     }
     requestAnimationFrame(frame);
   }
 
-  ui.regen.addEventListener("click", () => buildGraph());
-  ui.toggle.addEventListener("click", () => {
-    running = !running;
-    ui.toggle.textContent = running ? "Pause" : "Resume";
-  });
+  regenEl.addEventListener("click", () => rebuild().catch((e) => { stats.textContent = String(e); }));
+  toggleEl.addEventListener("click", () => { running = !running; toggleEl.textContent = running ? "Pause" : "Resume"; });
 
-    buildGraph();
-    frame();
-  })();
+  await rebuild();
+  frame();
+})();
 </script>
 </body>
 </html>

@@ -3,186 +3,153 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Grapheon - Hub and Spoke</title>
+  <title>Grapheon - Hub and Spoke (Worker + WebGL)</title>
   <style>
     body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; }
-    .wrap { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
+    .wrap { display: grid; grid-template-columns: 290px 1fr; height: 100vh; }
     .controls { background: #fff; border-right: 1px solid #e2e8f0; padding: 16px; }
-    .controls h1 { margin: 0 0 10px; font-size: 1.1rem; color: #0f172a; }
-    .controls label { font-size: 0.85rem; color: #334155; display: block; margin-top: 10px; }
-    .controls input, .controls button { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; margin-top: 6px; }
-    .controls button { border: none; background: #0284c7; color: #fff; font-weight: 600; cursor: pointer; }
-    .hint { margin-top: 10px; font-size: 0.8rem; color: #64748b; line-height: 1.35; }
+    .controls h1 { margin: 0 0 10px; font-size: 1.05rem; }
+    .controls label { font-size: 0.82rem; color: #334155; display: block; margin-top: 10px; }
+    .controls input, .controls button { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; margin-top: 4px; }
+    .controls button { border: none; background: #0284c7; color: #fff; font-weight: 700; cursor: pointer; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .hint { margin-top: 10px; font-size: 0.8rem; color: #64748b; }
     canvas { width: 100%; height: 100%; display: block; }
   </style>
 </head>
 <body>
 <div class="wrap">
   <aside class="controls">
-    <h1>Hub-and-Spoke Topology</h1>
-    <label>Leaf Nodes <input id="leafCount" type="number" value="2000" min="100" max="20000" step="100"></label>
-    <label>Hub Weight <input id="hubWeight" type="number" value="2.5" min="0.1" max="8" step="0.1"></label>
-    <label>Ring Every N Leaves <input id="ringStep" type="number" value="6" min="2" max="25" step="1"></label>
-    <button id="rebuild">Rebuild</button>
-    <button id="pause">Pause</button>
+    <h1>Hub-and-Spoke</h1>
+    <label>Leaf Nodes <input id="leafCount" type="number" value="30000" min="1000" max="180000" step="1000"></label>
+    <label>Workers <input id="workers" type="number" value="30" min="1" max="64" step="1"></label>
+    <div class="row">
+      <button id="rebuild">Rebuild</button>
+      <button id="pause">Pause</button>
+    </div>
     <div class="hint" id="status">ready</div>
   </aside>
   <main><canvas id="canvas" width="1280" height="800"></canvas></main>
 </div>
 
 <script>
-  (async () => {
-    if (window.location.protocol === "file:") {
-      const status = document.getElementById("status");
-      if (status) {
-        status.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/hub-spoke.html";
-      }
-      return;
-    }
+(async () => {
+  const status = document.getElementById("status");
+  if (window.location.protocol === "file:") {
+    status.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/hub-spoke.html";
+    return;
+  }
 
-    let ForceGraph;
-    try {
-      ({ ForceGraph } = await import("../dist/index.js"));
-    } catch {
-      const msg = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
-      const stats = document.getElementById("stats") ?? document.getElementById("status") ?? document.getElementById("meta");
-      if (stats) stats.textContent = msg;
-      return;
-    }
+  let ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController;
+  try {
+    ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController } = await import("../dist/index.js"));
+  } catch {
+    status.textContent = "dist/index.js not found. Run: npm run build from repo root.";
+    return;
+  }
 
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    const status = document.getElementById("status");
+  const canvas = document.getElementById("canvas");
+  const renderer = new WebGLForceGraphRenderer(canvas);
+  const leafCountEl = document.getElementById("leafCount");
+  const workersEl = document.getElementById("workers");
+  const rebuildEl = document.getElementById("rebuild");
+  const pauseEl = document.getElementById("pause");
+  const initialScale = 0.8;
+  const camera = new CanvasPanZoomController(canvas, {
+    initialScale,
+    initialOffsetX: canvas.width / (2 * initialScale),
+    initialOffsetY: canvas.height / (2 * initialScale),
+    minScale: 0.04,
+    maxScale: 10,
+  });
 
-    const leafCountEl = document.getElementById("leafCount");
-    const hubWeightEl = document.getElementById("hubWeight");
-    const ringStepEl = document.getElementById("ringStep");
-    const rebuildEl = document.getElementById("rebuild");
-    const pauseEl = document.getElementById("pause");
-
+  let engine = null;
   let running = true;
-  let graph;
-  const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.8 };
-  const pan = { active: false, lastX: 0, lastY: 0 };
-
-  function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
+  let last = performance.now();
+  function isExpectedTermination(error) {
+    return String(error).includes("Worker terminated");
   }
 
-  function eventToCanvas(event) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - rect.left) * (canvas.width / rect.width),
-      y: (event.clientY - rect.top) * (canvas.height / rect.height),
-    };
+  async function createEngine() {
+    if (engine) engine.terminate();
+    const wc = Math.max(1, Number(workersEl.value) || 1);
+    engine = wc === 1 ? new ForceGraphWorkerClient() : new ForceGraphWorkerPoolClient(wc);
+    await engine.init({ repulsionStrength: 22, springLength: 8, springStrength: 0.03, damping: 0.92, theta: 1 });
   }
 
-  function zoomAt(cx, cy, factor) {
-    const oldScale = view.scale;
-    const nextScale = clamp(oldScale * factor, 0.08, 8);
-    if (nextScale === oldScale) return;
+  function makeData(leafCount) {
+    const nodeCount = leafCount + 1;
+    const edgeCount = leafCount + Math.floor(leafCount / 8);
+    const positions = new Float32Array(nodeCount * 2);
+    positions[0] = 0;
+    positions[1] = 0;
 
-    const worldX = cx / oldScale - view.offsetX;
-    const worldY = cy / oldScale - view.offsetY;
-    view.scale = nextScale;
-    view.offsetX = cx / nextScale - worldX;
-    view.offsetY = cy / nextScale - worldY;
+    for (let i = 1; i < nodeCount; i += 1) {
+      const angle = (i / leafCount) * Math.PI * 2;
+      positions[i * 2] = Math.cos(angle) * 40;
+      positions[i * 2 + 1] = Math.sin(angle) * 40;
+    }
+
+    const edges = new Uint32Array(edgeCount * 2);
+    let k = 0;
+    for (let i = 1; i < nodeCount; i += 1) {
+      edges[k++] = 0;
+      edges[k++] = i;
+    }
+    for (let i = 8; i < nodeCount; i += 8) {
+      edges[k++] = i;
+      edges[k++] = i - 8;
+    }
+
+    return { nodeCount, positions, edges };
   }
 
-  canvas.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) return;
-    pan.active = true;
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
-    canvas.style.cursor = "grabbing";
-  });
-
-  window.addEventListener("mousemove", (event) => {
-    if (!pan.active) return;
-    const dx = event.clientX - pan.lastX;
-    const dy = event.clientY - pan.lastY;
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
-    view.offsetX += dx / view.scale;
-    view.offsetY += dy / view.scale;
-  });
-
-  window.addEventListener("mouseup", () => {
-    pan.active = false;
-    canvas.style.cursor = "grab";
-  });
-
-  canvas.addEventListener("wheel", (event) => {
-    event.preventDefault();
-    const { x, y } = eventToCanvas(event);
-    zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
-  }, { passive: false });
-
-  canvas.style.cursor = "grab";
-
-  function generate() {
+  async function rebuild() {
+    status.textContent = "building...";
+    await createEngine();
     const leafCount = Number(leafCountEl.value);
-    const hubWeight = Number(hubWeightEl.value);
-    const ringStep = Number(ringStepEl.value);
-
-    graph = new ForceGraph({
-      springLength: 18,
-      springStrength: 0.08,
-      repulsionStrength: 170,
-      damping: 0.9,
-      gravity: 0.002,
-      theta: 0.85,
-      initialSpread: 600,
-    });
-
-    graph.addNode("hub", { x: 0, y: 0, mass: 4 });
-
-    for (let i = 0; i < leafCount; i += 1) {
-      const id = `leaf-${i}`;
-      graph.addNode(id);
-      graph.addEdge("hub", id, hubWeight);
-
-      if (i > 0 && i % ringStep === 0) {
-        graph.addEdge(id, `leaf-${i - ringStep}`, 0.5);
-      }
-      if (i > 0 && i % 2 === 0) {
-        graph.addEdge(id, `leaf-${i - 1}`, 0.4);
-      }
-    }
+    const data = makeData(leafCount);
+    const loaded = await engine.loadGraph(data.nodeCount, data.edges, data.positions);
+    status.textContent = `${loaded.nodeCount.toLocaleString()} nodes loaded`;
   }
 
-  function animate() {
-    if (running) {
-      const s = graph.step(1);
-      graph.draw(ctx, {
-        width: canvas.width,
-        height: canvas.height,
-        offsetX: view.offsetX,
-        offsetY: view.offsetY,
-        nodeRadius: 1.6,
-        scale: view.scale,
-        backgroundColor: "#f8fafc",
-        nodeColor: "#0f172a",
-        edgeColor: "rgba(3,105,161,0.26)",
-        maxDrawNodes: 30000,
-        maxDrawEdges: 30000,
-      });
-
-      status.textContent = `${graph.nodeCount.toLocaleString()} nodes, ${graph.edgeCount.toLocaleString()} edges, avg speed ${s.averageSpeed.toFixed(3)}`;
+  async function frame() {
+    if (running && engine) {
+      try {
+        const summary = await engine.step(1);
+        const snapshot = await engine.snapshot(50000, 42000);
+        const view = camera.getTransform();
+        renderer.drawSnapshot(snapshot, {
+          width: canvas.width,
+          height: canvas.height,
+          offsetX: view.offsetX,
+          offsetY: view.offsetY,
+          scale: view.scale,
+          nodeRadius: 2,
+          nodeColor: "#0f172a",
+          edgeColor: "#0284c777",
+          backgroundColor: "#f8fafc",
+          drawEdges: true,
+        });
+        const now = performance.now();
+        const frameMs = now - last;
+        last = now;
+        status.textContent = `workers ${workersEl.value} | active ${summary.activeNodeCount.toLocaleString()} | frame ${frameMs.toFixed(1)}ms`;
+      } catch (error) {
+        if (!isExpectedTermination(error)) {
+          status.textContent = String(error);
+        }
+      }
     }
-
-    requestAnimationFrame(animate);
+    requestAnimationFrame(frame);
   }
 
-  rebuildEl.addEventListener("click", generate);
-  pauseEl.addEventListener("click", () => {
-    running = !running;
-    pauseEl.textContent = running ? "Pause" : "Resume";
-  });
+  rebuildEl.addEventListener("click", () => rebuild().catch((e) => { status.textContent = String(e); }));
+  pauseEl.addEventListener("click", () => { running = !running; pauseEl.textContent = running ? "Pause" : "Resume"; });
 
-    generate();
-    animate();
-  })();
+  await rebuild();
+  frame();
+})();
 </script>
 </body>
 </html>

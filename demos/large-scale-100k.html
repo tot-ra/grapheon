@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Grapheon - 100k+ Scale Demo</title>
+  <title>Grapheon - 100k+ Scale (Worker + WebGL)</title>
   <style>
-    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
+    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; }
     .bar { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #e2e8f0; background: #fff; flex-wrap: wrap; }
     .bar label { font-size: 0.8rem; color: #334155; }
     .bar input, .bar button { padding: 7px 9px; border-radius: 8px; border: 1px solid #cbd5e1; }
-    .bar button { cursor: pointer; border: none; background: #0369a1; color: #fff; font-weight: 600; }
+    .bar button { cursor: pointer; border: none; background: #0369a1; color: #fff; font-weight: 700; }
     #status { font-size: 0.82rem; color: #64748b; }
     canvas { width: 100vw; height: calc(100vh - 58px); display: block; }
   </style>
@@ -18,175 +18,144 @@
   <div class="bar">
     <label>Nodes <input id="nodes" type="number" value="120000" min="100000" max="300000" step="10000"></label>
     <label>Edges <input id="edges" type="number" value="130000" min="100000" max="400000" step="10000"></label>
-    <label>Draw Nodes <input id="drawNodes" type="number" value="35000" min="1000" max="200000" step="1000"></label>
-    <label>Draw Edges <input id="drawEdges" type="number" value="30000" min="1000" max="250000" step="1000"></label>
-    <button id="build">Build Graph</button>
+    <label>Workers <input id="workers" type="number" value="30" min="1" max="64" step="1"></label>
+    <button id="build">Reset Graph</button>
+    <button id="resetView">Reset View</button>
     <button id="toggle">Pause</button>
     <span id="status">ready</span>
   </div>
   <canvas id="canvas" width="1600" height="900"></canvas>
 
 <script>
-  (async () => {
-    if (window.location.protocol === "file:") {
-      const status = document.getElementById("status");
-      if (status) {
-        status.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/large-scale-100k.html";
-      }
-      return;
-    }
+(async () => {
+  const status = document.getElementById("status");
+  if (window.location.protocol === "file:") {
+    status.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/large-scale-100k.html";
+    return;
+  }
 
-    let ForceGraph;
-    try {
-      ({ ForceGraph } = await import("../dist/index.js"));
-    } catch {
-      const msg = "dist/index.js not found. Run: npm run build (from repo root), then open http://localhost:8080/demos/";
-      const stats = document.getElementById("stats") ?? document.getElementById("status") ?? document.getElementById("meta");
-      if (stats) stats.textContent = msg;
-      return;
-    }
+  let ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController;
+  try {
+    ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController } = await import("../dist/index.js"));
+  } catch {
+    status.textContent = "dist/index.js not found. Run: npm run build from repo root.";
+    return;
+  }
 
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    const status = document.getElementById("status");
+  const canvas = document.getElementById("canvas");
+  const renderer = new WebGLForceGraphRenderer(canvas);
+  const nodesEl = document.getElementById("nodes");
+  const edgesEl = document.getElementById("edges");
+  const workersEl = document.getElementById("workers");
+  const buildEl = document.getElementById("build");
+  const resetViewEl = document.getElementById("resetView");
+  const toggleEl = document.getElementById("toggle");
+  const initialScale = 0.6;
+  const initialOffsetX = canvas.width / (2 * initialScale);
+  const initialOffsetY = canvas.height / (2 * initialScale);
+  const camera = new CanvasPanZoomController(canvas, {
+    initialScale,
+    initialOffsetX,
+    initialOffsetY,
+    minScale: 0.04,
+    maxScale: 10,
+  });
 
-    const nodesEl = document.getElementById("nodes");
-    const edgesEl = document.getElementById("edges");
-    const drawNodesEl = document.getElementById("drawNodes");
-    const drawEdgesEl = document.getElementById("drawEdges");
-    const buildEl = document.getElementById("build");
-    const toggleEl = document.getElementById("toggle");
-
-  let graph = null;
+  let engine = null;
   let running = true;
-  const view = { offsetX: canvas.width / 2, offsetY: canvas.height / 2, scale: 0.6 };
-  const pan = { active: false, lastX: 0, lastY: 0 };
-
-  function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
+  let last = performance.now();
+  function isExpectedTermination(error) {
+    return String(error).includes("Worker terminated");
   }
 
-  function eventToCanvas(event) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - rect.left) * (canvas.width / rect.width),
-      y: (event.clientY - rect.top) * (canvas.height / rect.height),
-    };
+  async function createEngine() {
+    if (engine) engine.terminate();
+    const wc = Math.max(1, Number(workersEl.value) || 1);
+    engine = wc === 1 ? new ForceGraphWorkerClient() : new ForceGraphWorkerPoolClient(wc);
+    await engine.init({ repulsionStrength: 22, springLength: 8, springStrength: 0.03, damping: 0.92, theta: 1, maxSpeed: 4 });
   }
 
-  function zoomAt(cx, cy, factor) {
-    const oldScale = view.scale;
-    const nextScale = clamp(oldScale * factor, 0.04, 8);
-    if (nextScale === oldScale) return;
-
-    const worldX = cx / oldScale - view.offsetX;
-    const worldY = cy / oldScale - view.offsetY;
-    view.scale = nextScale;
-    view.offsetX = cx / nextScale - worldX;
-    view.offsetY = cy / nextScale - worldY;
-  }
-
-  canvas.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) return;
-    pan.active = true;
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
-    canvas.style.cursor = "grabbing";
-  });
-
-  window.addEventListener("mousemove", (event) => {
-    if (!pan.active) return;
-    const dx = event.clientX - pan.lastX;
-    const dy = event.clientY - pan.lastY;
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
-    view.offsetX += dx / view.scale;
-    view.offsetY += dy / view.scale;
-  });
-
-  window.addEventListener("mouseup", () => {
-    pan.active = false;
-    canvas.style.cursor = "grab";
-  });
-
-  canvas.addEventListener("wheel", (event) => {
-    event.preventDefault();
-    const { x, y } = eventToCanvas(event);
-    zoomAt(x, y, Math.exp(-event.deltaY * 0.0018));
-  }, { passive: false });
-
-  canvas.style.cursor = "grab";
-
-  function buildLargeGraph() {
-    const nodeCount = Number(nodesEl.value);
-    const edgeCount = Number(edgesEl.value);
-
-    graph = new ForceGraph({
-      repulsionStrength: 22,
-      springLength: 8,
-      springStrength: 0.03,
-      damping: 0.92,
-      timeStep: 0.22,
-      theta: 1,
-      gravity: 0.0012,
-      maxSpeed: 4,
-      initialSpread: 1400,
-    });
-
+  function makeData(nodeCount, edgeCount) {
+    const positions = new Float32Array(nodeCount * 2);
     const row = Math.ceil(Math.sqrt(nodeCount));
     for (let i = 0; i < nodeCount; i += 1) {
-      graph.addNode(i, {
-        x: (i % row) - row / 2,
-        y: Math.floor(i / row) - row / 2,
-      });
+      positions[i * 2] = (i % row) - row / 2;
+      positions[i * 2 + 1] = Math.floor(i / row) - row / 2;
     }
 
+    const edges = new Uint32Array(edgeCount * 2);
     for (let i = 0; i < edgeCount; i += 1) {
-      const a = i % nodeCount;
-      const b = (i * 13 + 97) % nodeCount;
-      graph.addEdge(a, b, 1);
+      edges[i * 2] = i % nodeCount;
+      edges[i * 2 + 1] = (i * 13 + 97) % nodeCount;
     }
+    return { positions, edges };
   }
 
-  function animate() {
-    if (running && graph) {
-      const summary = graph.step(1);
-      graph.draw(ctx, {
-        width: canvas.width,
-        height: canvas.height,
-        offsetX: view.offsetX,
-        offsetY: view.offsetY,
-        scale: view.scale,
-        nodeRadius: 1,
-        nodeColor: "#0f172a",
-        edgeColor: "rgba(2,132,199,0.15)",
-        backgroundColor: "#f8fafc",
-        maxDrawNodes: Number(drawNodesEl.value),
-        maxDrawEdges: Number(drawEdgesEl.value),
-      });
+  async function buildLargeGraph() {
+    status.textContent = "building...";
+    await createEngine();
+    const nodeCount = Number(nodesEl.value);
+    const edgeCount = Number(edgesEl.value);
+    const data = makeData(nodeCount, edgeCount);
+    const loaded = await engine.loadGraph(nodeCount, data.edges, data.positions);
+    status.textContent = `${loaded.nodeCount.toLocaleString()} nodes loaded (${workersEl.value} workers)`;
+  }
 
-      status.textContent = `${graph.nodeCount.toLocaleString()} nodes | ${graph.edgeCount.toLocaleString()} edges | avg speed ${summary.averageSpeed.toFixed(3)}`;
+  function resetView() {
+    camera.setTransform({
+      scale: initialScale,
+      offsetX: initialOffsetX,
+      offsetY: initialOffsetY,
+    });
+  }
+
+  async function animate() {
+    if (running && engine) {
+      try {
+        const summary = await engine.step(1);
+        const snap = await engine.snapshot(70000, 65000);
+        const view = camera.getTransform();
+        renderer.drawSnapshot(snap, {
+          width: canvas.width,
+          height: canvas.height,
+          offsetX: view.offsetX,
+          offsetY: view.offsetY,
+          scale: view.scale,
+          nodeRadius: 2,
+          nodeColor: "#0f172a",
+          edgeColor: "#0284c75a",
+          backgroundColor: "#f8fafc",
+          drawEdges: true,
+        });
+
+        const now = performance.now();
+        const ms = now - last;
+        last = now;
+        status.textContent = `workers ${workersEl.value} | active ${summary.activeNodeCount.toLocaleString()} | theta ${summary.theta.toFixed(2)} | frame ${ms.toFixed(1)}ms`;
+      } catch (error) {
+        if (!isExpectedTermination(error)) {
+          status.textContent = String(error);
+        }
+      }
     }
 
     requestAnimationFrame(animate);
   }
 
-  buildEl.addEventListener("click", () => {
-    status.textContent = "building...";
-    setTimeout(() => {
-      buildLargeGraph();
-      status.textContent = "running";
-    }, 0);
+  buildEl.addEventListener("click", () => buildLargeGraph().catch((e) => { status.textContent = String(e); }));
+  resetViewEl.addEventListener("click", resetView);
+  [nodesEl, edgesEl, workersEl].forEach((input) => {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        buildLargeGraph().catch((e) => { status.textContent = String(e); });
+      }
+    });
   });
+  toggleEl.addEventListener("click", () => { running = !running; toggleEl.textContent = running ? "Pause" : "Resume"; });
 
-  toggleEl.addEventListener("click", () => {
-    running = !running;
-    toggleEl.textContent = running ? "Pause" : "Resume";
-  });
-
-    buildLargeGraph();
-    animate();
-  })();
+  await buildLargeGraph();
+  animate();
+})();
 </script>
 </body>
 </html>

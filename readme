@@ -15,6 +15,7 @@ Scalable force-directed graph drawing and analysis library using TypeScript and 
 - Optional worker runtime (`ForceGraphWorkerClient`) for off-main-thread simulation.
 - Optional worker pool runtime (`ForceGraphWorkerPoolClient`) for multi-worker shard-parallel simulation.
 - Optional WebGL renderer (`WebGLForceGraphRenderer`) for high-throughput drawing.
+- Optional pan/zoom controller for canvas/WebGL viewports (`CanvasPanZoomController`).
 - WASM kernel interface for pluggable edge-force acceleration.
 - Added tests, including a large-graph test with >100k nodes and >100k edges.
 
@@ -86,16 +87,17 @@ Worker/WebGL:
 - `new ForceGraphWorkerClient()`
 - `new ForceGraphWorkerPoolClient(workerCount?)`
 - `new WebGLForceGraphRenderer(canvas)`
+- `new CanvasPanZoomController(canvas, options?)`
 
 ## Demos
 
 HTML demos are available in `/Users/artjom/git/grapheon/demos`:
 
 - `index.html` (gallery)
-- `random-erdos-renyi.html`
-- `hub-spoke.html`
-- `community-clusters.html`
-- `large-scale-100k.html`
+- `random-erdos-renyi.html` (worker + WebGL)
+- `hub-spoke.html` (worker + WebGL)
+- `community-clusters.html` (worker + WebGL)
+- `large-scale-100k.html` (worker + WebGL)
 - `worker-webgl.html`
 - `benchmark.html`
 
