@@ -1,9 +1,27 @@
 export type NodeId = string | number;
 
+export interface NodeAppearance {
+  color?: string;
+  radius?: number;
+  shape?: "circle" | "square" | "diamond" | "triangle";
+}
+
+export interface EdgeAppearance {
+  color?: string;
+  width?: number;
+}
+
 export interface GraphNodeInput {
   x?: number;
   y?: number;
+  z?: number;
   mass?: number;
+  appearance?: NodeAppearance;
+}
+
+export interface GraphEdgeInput {
+  weight?: number;
+  appearance?: EdgeAppearance;
 }
 
 export interface SimulationOptions {
@@ -11,6 +29,13 @@ export interface SimulationOptions {
   springStrength: number;
   repulsionStrength: number;
   gravity: number;
+  gravityMode: "center" | "directional" | "both";
+  gravityCenterX: number;
+  gravityCenterY: number;
+  gravityCenterZ: number;
+  gravityDirectionX: number;
+  gravityDirectionY: number;
+  gravityDirectionZ: number;
   damping: number;
   theta: number;
   timeStep: number;
@@ -33,6 +58,13 @@ export interface DrawOptions {
   offsetX?: number;
   offsetY?: number;
   scale?: number;
+  renderDimension?: "2d" | "3d";
+  projection?: "orthographic" | "perspective";
+  cameraDistance?: number;
+  rotationX?: number;
+  rotationY?: number;
+  rotationZ?: number;
+  nodeShape?: "circle" | "square" | "diamond" | "triangle";
   nodeRadius?: number;
   nodeColor?: string;
   edgeColor?: string;
@@ -63,6 +95,10 @@ export interface RenderSnapshot {
   positions: Float32Array;
   edgeSource: Uint32Array;
   edgeTarget: Uint32Array;
+  nodeRadii: Float32Array;
+  nodeColors: Uint8Array;
+  edgeWidths: Float32Array;
+  edgeColors: Uint8Array;
 }
 
 export interface WasmForceKernel {

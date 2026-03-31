@@ -18,8 +18,23 @@ let currentOptions: Partial<SimulationOptions> = {};
 let graph = new ForceGraph<number>(currentOptions);
 const workerScope = self as unknown as { postMessage: (message: unknown, transfer?: Transferable[]) => void };
 
+function positionDimension(positions: Float32Array | undefined, nodeCount: number): 2 | 3 {
+  if (!positions || nodeCount <= 0) {
+    return 3;
+  }
+  return positions.length >= nodeCount * 3 ? 3 : 2;
+}
+
 function toTransferables(snapshot: RenderSnapshot): Transferable[] {
-  return [snapshot.positions.buffer, snapshot.edgeSource.buffer, snapshot.edgeTarget.buffer];
+  return [
+    snapshot.positions.buffer,
+    snapshot.edgeSource.buffer,
+    snapshot.edgeTarget.buffer,
+    snapshot.nodeRadii.buffer,
+    snapshot.nodeColors.buffer,
+    snapshot.edgeWidths.buffer,
+    snapshot.edgeColors.buffer,
+  ];
 }
 
 self.onmessage = (event: MessageEvent<{ id: number; payload: RequestMessage }>) => {
@@ -39,13 +54,17 @@ self.onmessage = (event: MessageEvent<{ id: number; payload: RequestMessage }>) 
       case "load": {
         graph = new ForceGraph<number>(currentOptions);
         const { nodeCount, positions, edges } = payload;
+        const dimension = positionDimension(positions, nodeCount);
 
         for (let i = 0; i < nodeCount; i += 1) {
-          const x = positions ? positions[i * 2] : undefined;
-          const y = positions ? positions[i * 2 + 1] : undefined;
-          const nodeInput: { x?: number; y?: number } = {};
+          const base = dimension === 3 ? i * 3 : i * 2;
+          const x = positions ? positions[base] : undefined;
+          const y = positions ? positions[base + 1] : undefined;
+          const z = positions && dimension === 3 ? positions[base + 2] : undefined;
+          const nodeInput: { x?: number; y?: number; z?: number } = {};
           if (x !== undefined) nodeInput.x = x;
           if (y !== undefined) nodeInput.y = y;
+          if (z !== undefined) nodeInput.z = z;
           graph.addNode(i, nodeInput);
         }
 

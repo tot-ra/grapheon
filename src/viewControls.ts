@@ -2,26 +2,38 @@ export interface PanZoomOptions {
   minScale?: number;
   maxScale?: number;
   zoomFactor?: number;
+  rotateFactor?: number;
   initialScale?: number;
   initialOffsetX?: number;
   initialOffsetY?: number;
+  initialRotationX?: number;
+  initialRotationY?: number;
+  initialRotationZ?: number;
 }
 
 export interface ViewTransform {
   offsetX: number;
   offsetY: number;
   scale: number;
+  rotationX: number;
+  rotationY: number;
+  rotationZ: number;
 }
 
 export class CanvasPanZoomController {
   private offsetX: number;
   private offsetY: number;
   private scale: number;
+  private rotationX: number;
+  private rotationY: number;
+  private rotationZ: number;
   private readonly minScale: number;
   private readonly maxScale: number;
   private readonly zoomFactor: number;
+  private readonly rotateFactor: number;
 
   private dragging = false;
+  private dragMode: "pan" | "rotateZ" = "pan";
   private lastX = 0;
   private lastY = 0;
 
@@ -29,9 +41,13 @@ export class CanvasPanZoomController {
     this.minScale = options.minScale ?? 0.08;
     this.maxScale = options.maxScale ?? 8;
     this.zoomFactor = options.zoomFactor ?? 1.12;
+    this.rotateFactor = options.rotateFactor ?? 0.01;
     this.scale = options.initialScale ?? 1;
     this.offsetX = options.initialOffsetX ?? 0;
     this.offsetY = options.initialOffsetY ?? 0;
+    this.rotationX = options.initialRotationX ?? -0.45;
+    this.rotationY = options.initialRotationY ?? 0.55;
+    this.rotationZ = options.initialRotationZ ?? 0;
 
     this.canvas.style.touchAction = "none";
     this.bind();
@@ -42,6 +58,9 @@ export class CanvasPanZoomController {
       offsetX: this.offsetX,
       offsetY: this.offsetY,
       scale: this.scale,
+      rotationX: this.rotationX,
+      rotationY: this.rotationY,
+      rotationZ: this.rotationZ,
     };
   }
 
@@ -55,11 +74,25 @@ export class CanvasPanZoomController {
     if (transform.offsetY !== undefined) {
       this.offsetY = transform.offsetY;
     }
+    if (transform.rotationX !== undefined) {
+      this.rotationX = transform.rotationX;
+    }
+    if (transform.rotationY !== undefined) {
+      this.rotationY = transform.rotationY;
+    }
+    if (transform.rotationZ !== undefined) {
+      this.rotationZ = transform.rotationZ;
+    }
   }
 
   private bind(): void {
+    this.canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+
     this.canvas.addEventListener("pointerdown", (event) => {
       this.dragging = true;
+      this.dragMode = event.button === 2 ? "rotateZ" : "pan";
       this.lastX = event.clientX;
       this.lastY = event.clientY;
       this.canvas.setPointerCapture(event.pointerId);
@@ -75,17 +108,24 @@ export class CanvasPanZoomController {
       this.lastX = event.clientX;
       this.lastY = event.clientY;
 
+      if (this.dragMode === "rotateZ") {
+        this.rotationZ += dx * this.rotateFactor;
+        return;
+      }
+
       this.offsetX += dx / this.scale;
       this.offsetY += dy / this.scale;
     });
 
     this.canvas.addEventListener("pointerup", (event) => {
       this.dragging = false;
+      this.dragMode = "pan";
       this.canvas.releasePointerCapture(event.pointerId);
     });
 
     this.canvas.addEventListener("pointercancel", () => {
       this.dragging = false;
+      this.dragMode = "pan";
     });
 
     this.canvas.addEventListener(

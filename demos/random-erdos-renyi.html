@@ -3,173 +3,83 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Grapheon - Random Erdős-Rényi (Worker + WebGL)</title>
+  <title>Grapheon - Random Erdős-Rényi</title>
   <style>
-    body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; }
-    .layout { display: grid; grid-template-columns: 310px 1fr; height: 100vh; }
-    .panel { padding: 16px; border-right: 1px solid #e2e8f0; background: #fff; }
-    h1 { margin: 0 0 8px; font-size: 1.05rem; }
-    label { display: block; font-size: 0.82rem; color: #334155; margin-top: 10px; }
-    input, button { width: 100%; margin-top: 4px; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; }
-    button { border: none; background: #0284c7; color: #fff; font-weight: 700; cursor: pointer; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .meta { margin-top: 10px; font-size: 0.8rem; color: #64748b; }
-    canvas { width: 100%; height: 100%; display: block; }
+    :root { color-scheme: light; --panel: #fffdf9; --line: #dfd7cb; --ink: #1f2937; --muted: #6b7280; --accent: #b45309; --canvas: #f7f1e8; }
+    * { box-sizing: border-box; } html, body { height: 100%; } body { margin: 0; overflow: hidden; font-family: "Avenir Next", "Segoe UI", sans-serif; color: var(--ink); background: linear-gradient(180deg, #fffaf3 0%, #f6ecdf 100%); }
+    .layout { display: grid; grid-template-columns: 360px 1fr; height: 100vh; min-height: 0; } .panel { overflow: auto; min-height: 0; padding: 18px; border-right: 1px solid var(--line); background: rgba(255,253,249,0.96); }
+    h1 { margin: 0 0 6px; font-size: 1.15rem; } .sub { margin: 0 0 16px; color: var(--muted); font-size: 0.86rem; line-height: 1.4; }
+    .section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); } .section h2 { margin: 0 0 10px; font-size: 0.82rem; letter-spacing: 0.08em; text-transform: uppercase; color: #7c4a12; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } label { display: block; font-size: 0.8rem; color: #374151; }
+    input, select, button { width: 100%; margin-top: 4px; padding: 9px 10px; border-radius: 10px; border: 1px solid #d7c8b6; background: #fff; color: var(--ink); }
+    input[type="checkbox"] { width: auto; margin: 0 8px 0 0; } button { cursor: pointer; border: none; font-weight: 700; background: linear-gradient(135deg, var(--accent), #c2410c); color: white; }
+    button.secondary { background: #f2e6d6; color: var(--ink); border: 1px solid #dbc8b4; } .row-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .toggle { display: flex; align-items: center; margin-top: 12px; font-size: 0.82rem; } .status { margin-top: 14px; padding: 12px; border-radius: 12px; background: #f7ede0; color: var(--muted); font-size: 0.82rem; min-height: 64px; line-height: 1.45; }
+    .viewport { min-width: 0; min-height: 0; height: 100%; background: radial-gradient(circle at top, #fffaf1, var(--canvas)); } canvas { width: 100%; height: 100%; display: block; }
+    @media (max-width: 960px) { body { overflow: auto; } .layout { grid-template-columns: 1fr; height: auto; min-height: 100vh; } .panel { border-right: none; border-bottom: 1px solid var(--line); max-height: 45vh; } .viewport { min-height: 55vh; height: 55vh; } }
   </style>
 </head>
 <body>
 <div class="layout">
   <aside class="panel">
     <h1>Random Erdős-Rényi</h1>
-    <label>Nodes <input id="nodes" type="number" value="25000" min="1000" max="120000" step="1000"></label>
-    <label>Edges <input id="edges" type="number" value="40000" min="1000" max="240000" step="1000"></label>
-    <label>Workers <input id="workers" type="number" value="30" min="1" max="64" step="1"></label>
-    <div class="row">
-      <button id="regen">Rebuild</button>
-      <button id="toggle">Pause</button>
-    </div>
-    <div class="meta" id="stats">ready</div>
+    <p class="sub">A dense random graph with full left-side controls for force tuning and styling.</p>
+    <div class="section"><h2>Graph</h2><div class="grid">
+      <label>Nodes <input id="nodes" type="number" value="25000" min="1000" max="120000" step="1000"></label>
+      <label>Edges <input id="edges" type="number" value="40000" min="1000" max="240000" step="1000"></label>
+      <label>Workers <input id="workers" type="number" value="30" min="1" max="64" step="1"></label>
+      <label>Render Mode <select id="renderDimension"><option value="2d">2D</option><option value="3d" selected>3D</option></select></label>
+      <label>Projection <select id="projection"><option value="perspective">Perspective</option><option value="orthographic">Orthographic</option></select></label>
+    </div></div>
+    <div class="section"><h2>Physics</h2><div class="grid">
+      <label>Repulsion <input id="repulsion" type="number" value="26" step="1"></label>
+      <label>Spring Length <input id="springLength" type="number" value="8" step="0.5"></label>
+      <label>Spring Strength <input id="springStrength" type="number" value="0.03" step="0.005"></label>
+      <label>Gravity <input id="gravity" type="number" value="0.003" step="0.001"></label>
+      <label>Damping <input id="damping" type="number" value="0.92" step="0.01"></label>
+      <label>Theta <input id="theta" type="number" value="1" step="0.05"></label>
+      <label>Max Speed <input id="maxSpeed" type="number" value="6" step="0.2"></label>
+      <label>Gravity Mode <select id="gravityMode"><option value="center">Center</option><option value="directional">Directional</option><option value="both">Both</option></select></label>
+    </div></div>
+    <div class="section"><h2>Style</h2><div class="grid">
+      <label>Node Size <input id="nodeRadius" type="number" value="2" step="0.2"></label>
+      <label>Edge Width <input id="edgeWidth" type="number" value="1" step="0.2"></label>
+      <label>Node Color <input id="nodeColor" type="color" value="#0f172a"></label>
+      <label>Edge Color <input id="edgeColor" type="color" value="#64748b"></label>
+      <label>Background <input id="backgroundColor" type="color" value="#f8fafc"></label>
+      <label>Node Shape <select id="nodeShape"><option value="circle">Circle</option><option value="square">Square</option><option value="diamond">Diamond</option><option value="triangle">Triangle</option></select></label>
+      <label>Camera Distance <input id="cameraDistance" type="number" value="1200" step="50"></label>
+      <label>Max Draw Nodes <input id="maxDrawNodes" type="number" value="45000" step="1000"></label>
+    </div><label style="margin-top:10px;">Max Draw Edges <input id="maxDrawEdges" type="number" value="40000" step="1000"></label><label class="toggle"><input id="drawEdges" type="checkbox" checked>Draw edges</label></div>
+    <div class="row-buttons"><button id="rebuild">Rebuild</button><button class="secondary" id="pause">Pause</button><button class="secondary" id="resetView">Reset View</button><button class="secondary" id="applyView">Apply View</button></div>
+    <div class="status" id="status">ready</div>
   </aside>
-  <main><canvas id="canvas" width="1280" height="800"></canvas></main>
+  <main class="viewport"><canvas id="canvas"></canvas></main>
 </div>
-
 <script>
 (async () => {
-  const stats = document.getElementById("stats");
-  if (window.location.protocol === "file:") {
-    stats.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/random-erdos-renyi.html";
-    return;
-  }
-
-  let ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController;
-  try {
-    ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, WebGLForceGraphRenderer, CanvasPanZoomController } = await import("../dist/index.js"));
-  } catch {
-    stats.textContent = "dist/index.js not found. Run: npm run build from repo root.";
-    return;
-  }
-
-  const canvas = document.getElementById("canvas");
-  const renderer = new WebGLForceGraphRenderer(canvas);
-  const nodesEl = document.getElementById("nodes");
-  const edgesEl = document.getElementById("edges");
-  const workersEl = document.getElementById("workers");
-  const regenEl = document.getElementById("regen");
-  const toggleEl = document.getElementById("toggle");
-  const initialScale = 0.62;
-  const camera = new CanvasPanZoomController(canvas, {
-    initialScale,
-    initialOffsetX: canvas.width / (2 * initialScale),
-    initialOffsetY: canvas.height / (2 * initialScale),
-    minScale: 0.04,
-    maxScale: 10,
-  });
-
-  let running = true;
-  let engine = null;
-  let last = performance.now();
-  function isExpectedTermination(error) {
-    return String(error).includes("Worker terminated");
-  }
-
-  async function createEngine() {
-    if (engine) engine.terminate();
-    const wc = Math.max(1, Number(workersEl.value) || 1);
-    engine = wc === 1 ? new ForceGraphWorkerClient() : new ForceGraphWorkerPoolClient(wc);
-    await engine.init({ repulsionStrength: 26, springLength: 8, springStrength: 0.03, damping: 0.92, theta: 1 });
-  }
-
-  function makeGraphData(n, e) {
-    const positions = new Float32Array(n * 2);
-    const row = Math.ceil(Math.sqrt(n));
-    for (let i = 0; i < n; i += 1) {
-      positions[i * 2] = (i % row) - row / 2;
-      positions[i * 2 + 1] = Math.floor(i / row) - row / 2;
-    }
-
-    const maxUndirectedEdges = Math.floor((n * (n - 1)) / 2);
-    const targetEdges = Math.max(0, Math.min(e, maxUndirectedEdges));
-    const edges = new Uint32Array(targetEdges * 2);
-    const used = new Set();
-
-    let i = 0;
-    while (i < targetEdges) {
-      const a = Math.floor(Math.random() * n);
-      let b = Math.floor(Math.random() * n);
-      if (a === b) {
-        continue;
-      }
-
-      let low = a;
-      let high = b;
-      if (low > high) {
-        low = b;
-        high = a;
-      }
-
-      const key = low * n + high;
-      if (used.has(key)) {
-        continue;
-      }
-      used.add(key);
-
-      edges[i * 2] = low;
-      edges[i * 2 + 1] = high;
-      i += 1;
-    }
-
-    return { positions, edges, targetEdges, maxUndirectedEdges };
-  }
-
-  async function rebuild() {
-    stats.textContent = "building...";
-    await createEngine();
-    const n = Number(nodesEl.value);
-    const e = Number(edgesEl.value);
-    const data = makeGraphData(n, e);
-    const loaded = await engine.loadGraph(n, data.edges, data.positions);
-    stats.textContent = `${loaded.nodeCount.toLocaleString()} nodes, ${loaded.edgeCount.toLocaleString()} edges loaded`;
-    if (data.targetEdges < e) {
-      stats.textContent += ` (clamped to max ${data.maxUndirectedEdges.toLocaleString()})`;
-    }
-  }
-
-  async function frame() {
-    if (running && engine) {
-      try {
-        const summary = await engine.step(1);
-        const snapshot = await engine.snapshot(45000, 40000);
-        const view = camera.getTransform();
-        renderer.drawSnapshot(snapshot, {
-          width: canvas.width,
-          height: canvas.height,
-          offsetX: view.offsetX,
-          offsetY: view.offsetY,
-          scale: view.scale,
-          nodeRadius: 2,
-          nodeColor: "#0f172a",
-          edgeColor: "#64748b88",
-          backgroundColor: "#f8fafc",
-          drawEdges: true,
-        });
-        const now = performance.now();
-        const frameMs = now - last;
-        last = now;
-        stats.textContent = `workers ${workersEl.value} | active ${summary.activeNodeCount.toLocaleString()} | theta ${summary.theta.toFixed(2)} | frame ${frameMs.toFixed(1)}ms`;
-      } catch (error) {
-        if (!isExpectedTermination(error)) {
-          stats.textContent = String(error);
-        }
-      }
-    }
-    requestAnimationFrame(frame);
-  }
-
-  regenEl.addEventListener("click", () => rebuild().catch((e) => { stats.textContent = String(e); }));
-  toggleEl.addEventListener("click", () => { running = !running; toggleEl.textContent = running ? "Pause" : "Resume"; });
-
-  await rebuild();
-  frame();
+  const $ = (id) => document.getElementById(id), status = $("status");
+  if (location.protocol === "file:") { status.textContent = "Open via local server: python3 -m http.server 8080 then http://localhost:8080/demos/random-erdos-renyi.html"; return; }
+  let ForceGraphWorkerClient, ForceGraphWorkerPoolClient, CanvasPanZoomController, renderSnapshotToCanvas;
+  try { ({ ForceGraphWorkerClient, ForceGraphWorkerPoolClient, CanvasPanZoomController } = await import("../dist/index.js")); ({ renderSnapshotToCanvas } = await import("./snapshotRenderer.js")); } catch { status.textContent = "dist/index.js not found. Run: npm run build"; return; }
+  const canvas = $("canvas"), ctx = canvas.getContext("2d"), initialView = { scale: 0.62, rotationX: -0.45, rotationY: 0.55, rotationZ: 0 };
+  if (!ctx) { status.textContent = "2D canvas unavailable"; return; }
+  let engine = null, running = true, last = performance.now();
+  function resizeCanvas() { const rect = canvas.getBoundingClientRect(); canvas.width = Math.max(1, Math.floor(rect.width * devicePixelRatio)); canvas.height = Math.max(1, Math.floor(rect.height * devicePixelRatio)); }
+  resizeCanvas(); addEventListener("resize", resizeCanvas);
+  const camera = new CanvasPanZoomController(canvas, { minScale: 0.04, maxScale: 10, initialScale: initialView.scale, initialRotationX: initialView.rotationX, initialRotationY: initialView.rotationY, initialRotationZ: initialView.rotationZ });
+  function resetView() { camera.setTransform({ scale: initialView.scale, offsetX: canvas.width / (2 * initialView.scale), offsetY: canvas.height / (2 * initialView.scale), rotationX: initialView.rotationX, rotationY: initialView.rotationY, rotationZ: initialView.rotationZ }); }
+  resetView();
+  const num = (id) => Number($(id).value), renderDimension = () => $("renderDimension").value;
+  const simulationOptions = () => ({ repulsionStrength: num("repulsion"), springLength: num("springLength"), springStrength: num("springStrength"), gravity: num("gravity"), damping: num("damping"), theta: num("theta"), maxSpeed: num("maxSpeed"), gravityMode: $("gravityMode").value });
+  const drawOptions = () => { const view = camera.getTransform(); return { width: canvas.width, height: canvas.height, offsetX: view.offsetX, offsetY: view.offsetY, scale: view.scale, renderDimension: $("renderDimension").value, rotationX: view.rotationX, rotationY: view.rotationY, rotationZ: view.rotationZ, projection: $("projection").value, cameraDistance: num("cameraDistance"), nodeRadius: num("nodeRadius"), nodeColor: $("nodeColor").value, nodeShape: $("nodeShape").value, edgeColor: $("edgeColor").value + "88", edgeWidth: num("edgeWidth"), backgroundColor: $("backgroundColor").value, maxDrawNodes: num("maxDrawNodes"), maxDrawEdges: num("maxDrawEdges"), drawEdges: $("drawEdges").checked }; };
+  const isExpectedTermination = (error) => String(error).includes("Worker terminated");
+  async function createEngine() { if (engine) engine.terminate(); const wc = Math.max(1, num("workers") || 1); engine = wc === 1 ? new ForceGraphWorkerClient() : new ForceGraphWorkerPoolClient(wc); await engine.init(simulationOptions()); }
+  function makeGraphData(n, e) { const positions = new Float32Array(n * 3), is2d = renderDimension() === "2d"; const row = Math.ceil(Math.sqrt(n)); for (let i = 0; i < n; i += 1) { positions[i * 3] = (i % row) - row / 2; positions[i * 3 + 1] = Math.floor(i / row) - row / 2; positions[i * 3 + 2] = is2d ? 0 : (Math.random() - 0.5) * 24; } const maxUndirectedEdges = Math.floor((n * (n - 1)) / 2), targetEdges = Math.max(0, Math.min(e, maxUndirectedEdges)), edges = new Uint32Array(targetEdges * 2), used = new Set(); let i = 0; while (i < targetEdges) { const a = Math.floor(Math.random() * n), b = Math.floor(Math.random() * n); if (a === b) continue; const low = Math.min(a, b), high = Math.max(a, b), key = low * n + high; if (used.has(key)) continue; used.add(key); edges[i * 2] = low; edges[i * 2 + 1] = high; i += 1; } return { positions, edges, targetEdges, maxUndirectedEdges }; }
+  async function rebuild() { status.textContent = "building..."; await createEngine(); const n = num("nodes"), e = num("edges"), data = makeGraphData(n, e), loaded = await engine.loadGraph(n, data.edges, data.positions); status.textContent = `${loaded.nodeCount.toLocaleString()} nodes, ${loaded.edgeCount.toLocaleString()} edges loaded${data.targetEdges < e ? ` (clamped to max ${data.maxUndirectedEdges.toLocaleString()})` : ""}`; }
+  async function frame() { if (running && engine) { try { const summary = await engine.step(1), snapshot = await engine.snapshot(num("maxDrawNodes"), num("maxDrawEdges")); renderSnapshotToCanvas(ctx, snapshot, drawOptions()); const now = performance.now(); status.textContent = `workers ${num("workers")} | active ${summary.activeNodeCount.toLocaleString()} | theta ${summary.theta.toFixed(2)} | frame ${(now - last).toFixed(1)}ms`; last = now; } catch (error) { if (!isExpectedTermination(error)) status.textContent = String(error); } } requestAnimationFrame(frame); }
+  $("rebuild").addEventListener("click", () => rebuild().catch((e) => { status.textContent = String(e); })); $("pause").addEventListener("click", () => { running = !running; $("pause").textContent = running ? "Pause" : "Resume"; }); $("resetView").addEventListener("click", resetView); $("applyView").addEventListener("click", () => { status.textContent = "style and view changes apply immediately."; }); $("renderDimension").addEventListener("change", () => { resetView(); rebuild().catch((e) => { status.textContent = String(e); }); });
+  await rebuild(); frame();
 })();
 </script>
 </body>

@@ -17,6 +17,9 @@ Scalable force-directed graph drawing and analysis library using TypeScript and 
 - Optional WebGL renderer (`WebGLForceGraphRenderer`) for high-throughput drawing.
 - Optional pan/zoom controller for canvas/WebGL viewports (`CanvasPanZoomController`).
 - WASM kernel interface for pluggable edge-force acceleration.
+- 3D node coordinates with perspective or orthographic projection during rendering.
+- Configurable gravity modes: center pull, directional gravity, or both.
+- Per-node and per-edge appearance overrides for color, radius, and width.
 - Added tests, including a large-graph test with >100k nodes and >100k edges.
 
 Legacy JS files are still present under `js/` and untouched.
@@ -52,8 +55,8 @@ const graph = new ForceGraph<string>({
 });
 
 graph.addNode("a", { x: -100, y: 0 });
-graph.addNode("b", { x: 100, y: 0 });
-graph.addEdge("a", "b", 1);
+graph.addNode("b", { x: 100, y: 0, z: 80, appearance: { color: "#2563eb", radius: 5 } });
+graph.addEdge("a", "b", { weight: 1, appearance: { color: "#94a3b8", width: 1.5 } });
 
 graph.step(1);
 
@@ -66,6 +69,8 @@ if (ctx) {
     maxDrawNodes: 150_000,
     maxDrawEdges: 150_000,
     drawEdges: true,
+    projection: "perspective",
+    cameraDistance: 1200,
   });
 }
 ```
@@ -73,14 +78,24 @@ if (ctx) {
 ## API
 
 - `new ForceGraph(options?)`
-- `addNode(id, { x?, y?, mass? })`
-- `addEdge(sourceId, targetId, weight?)`
+- `addNode(id, { x?, y?, z?, mass?, appearance? })`
+- `addEdge(sourceId, targetId, weightOrInput?)`
 - `step(iterations?)`
 - `draw(ctx, drawOptions)`
 - `exportRenderSnapshot(maxNodes?, maxEdges?)`
 - `setWasmKernel(kernel|null)`
+- `setNodeAppearance(id, appearance)`
+- `setEdgeAppearance(index, appearance)`
 - `getNodePosition(id)`
 - `nodeAt(index)`
+
+Gravity and 3D options:
+
+- `gravity` controls strength.
+- `gravityMode` accepts `"center"`, `"directional"`, or `"both"`.
+- `gravityCenterX/Y/Z` sets the gravity anchor for center mode.
+- `gravityDirectionX/Y/Z` sets the pull direction for directional mode.
+- `draw(..., { projection, cameraDistance, rotationX, rotationY, rotationZ })` controls 3D projection.
 
 Worker/WebGL:
 
@@ -88,6 +103,12 @@ Worker/WebGL:
 - `new ForceGraphWorkerPoolClient(workerCount?)`
 - `new WebGLForceGraphRenderer(canvas)`
 - `new CanvasPanZoomController(canvas, options?)`
+
+Viewport controls:
+
+- Left-drag pans.
+- Mouse wheel zooms.
+- Right-drag rotates around the z-axis by updating `rotationZ`.
 
 ## Demos
 

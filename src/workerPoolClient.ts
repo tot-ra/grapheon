@@ -11,6 +11,13 @@ interface LoadResult {
   edgeCount: number;
 }
 
+function positionDimension(positions: Float32Array | undefined, nodeCount: number): 2 | 3 {
+  if (!positions || nodeCount <= 0) {
+    return 3;
+  }
+  return positions.length >= nodeCount * 3 ? 3 : 2;
+}
+
 export class ForceGraphWorkerPoolClient {
   private readonly workers: ForceGraphWorkerClient[];
   private shards: ShardInfo[] = [];
@@ -81,6 +88,10 @@ export class ForceGraphWorkerPoolClient {
         positions: new Float32Array(0),
         edgeSource: new Uint32Array(0),
         edgeTarget: new Uint32Array(0),
+        nodeRadii: new Float32Array(0),
+        nodeColors: new Uint8Array(0),
+        edgeWidths: new Float32Array(0),
+        edgeColors: new Uint8Array(0),
       };
     }
 
@@ -91,27 +102,35 @@ export class ForceGraphWorkerPoolClient {
     const nodeCount = snapshots.reduce((sum, snapshot) => sum + snapshot.nodeCount, 0);
     const edgeCount = snapshots.reduce((sum, snapshot) => sum + snapshot.edgeCount, 0);
 
-    const positions = new Float32Array(nodeCount * 2);
+    const positions = new Float32Array(nodeCount * 3);
     const edgeSource = new Uint32Array(edgeCount);
     const edgeTarget = new Uint32Array(edgeCount);
+    const nodeRadii = new Float32Array(nodeCount);
+    const nodeColors = new Uint8Array(nodeCount * 4);
+    const edgeWidths = new Float32Array(edgeCount);
+    const edgeColors = new Uint8Array(edgeCount * 4);
 
     let nodeOffset = 0;
     let edgeOffset = 0;
 
     for (let i = 0; i < snapshots.length; i += 1) {
       const snapshot = snapshots[i];
-      positions.set(snapshot.positions, nodeOffset * 2);
+      positions.set(snapshot.positions, nodeOffset * 3);
+      nodeRadii.set(snapshot.nodeRadii, nodeOffset);
+      nodeColors.set(snapshot.nodeColors, nodeOffset * 4);
 
       for (let e = 0; e < snapshot.edgeCount; e += 1) {
         edgeSource[edgeOffset + e] = snapshot.edgeSource[e] + nodeOffset;
         edgeTarget[edgeOffset + e] = snapshot.edgeTarget[e] + nodeOffset;
+        edgeWidths[edgeOffset + e] = snapshot.edgeWidths[e];
       }
+      edgeColors.set(snapshot.edgeColors, edgeOffset * 4);
 
       nodeOffset += snapshot.nodeCount;
       edgeOffset += snapshot.edgeCount;
     }
 
-    return { nodeCount, edgeCount, positions, edgeSource, edgeTarget };
+    return { nodeCount, edgeCount, positions, edgeSource, edgeTarget, nodeRadii, nodeColors, edgeWidths, edgeColors };
   }
 
   private createShards(nodeCount: number, shardCount: number): ShardInfo[] {
@@ -172,7 +191,7 @@ export class ForceGraphWorkerPoolClient {
     if (!positions) {
       return undefined;
     }
-
-    return positions.slice(start * 2, (start + count) * 2);
+    const dimension = positionDimension(positions, this.shards.reduce((sum, shard) => sum + shard.count, 0));
+    return positions.slice(start * dimension, (start + count) * dimension);
   }
 }
